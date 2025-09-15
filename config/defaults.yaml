@@ -1,0 +1,18 @@
+schema_version: 1
+exit_codes:
+  ok: 0
+  generic_error: 1
+  invalid_input: 2
+  provider_unavailable: 3
+  provider_cli_error: 4
+  timeout: 5
+  missing_config: 6
+  db_error: 7
+  tmux_error: 8
+
+timeouts:
+  send_ms: 120000
+  doctor:
+    per_provider_ms: 2000
+    global_ms: 10000
+  tmux_action_ms: 5000
