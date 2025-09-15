@@ -1,0 +1,46 @@
+# Normalize line endings and default to LF
+* text=auto eol=lf
+
+# Source code and config (ensure LF)
+*.sh  text eol=lf
+*.bash text eol=lf
+*.zsh text eol=lf
+*.rs  text eol=lf
+*.toml text eol=lf
+*.yaml text eol=lf
+*.yml  text eol=lf
+*.json text eol=lf
+*.sql  text eol=lf
+*.md   text eol=lf
+
+# Documentation classification for GitHub Linguist
+/docs/** linguist-documentation
+
+# Binary files (no diffs)
+*.png   binary -diff
+*.jpg   binary -diff
+*.jpeg  binary -diff
+*.gif   binary -diff
+*.webp  binary -diff
+*.ico   binary -diff
+*.pdf   binary -diff
+*.zip   binary -diff
+*.tar.gz binary -diff
+*.tgz   binary -diff
+*.gz    binary -diff
+*.bz2   binary -diff
+*.xz    binary -diff
+*.7z    binary -diff
+*.mp4   binary -diff
+*.mov   binary -diff
+*.mp3   binary -diff
+*.wav   binary -diff
+*.woff  binary -diff
+*.woff2 binary -diff
+
+# Databases (treat as binary)
+*.sqlite  binary -diff
+*.sqlite3 binary -diff
+*.db      binary -diff
+*.db-wal  binary -diff
+*.db-shm  binary -diff
