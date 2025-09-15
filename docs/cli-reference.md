@@ -5,8 +5,9 @@ Environment
 
 Global behavior
 - Concurrency: max 3 one-shot executions (FIFO queue).
-- Default timeouts: 120s per send; 5s tmux actions.
+- Default timeouts: 120s per send; doctor 2s/provider (10s global); 5s tmux actions.
 - Exit codes: 0 OK; 1 generic; 2 invalid input; 3 provider unavailable; 4 provider CLI error; 5 timeout; 6 config missing; 7 DB error; 8 tmux error.
+  - See canonical spec: `docs/specs/errors-and-timeouts.md` (human) and `config/defaults.yaml` (machine-readable).
 
 Commands
 - `multi-agents doctor`

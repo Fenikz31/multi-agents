@@ -5,6 +5,7 @@ Standards
 - Timeouts: 120s per send; 2–10s doctor/detection; 5s tmux actions.
 - Logging: NDJSON per agent at `./logs/{project}/{role}.ndjson`.
 - Exit codes: 0 OK; 1 generic; 2 invalid input; 3 provider unavailable; 4 provider CLI error; 5 timeout; 6 config missing; 7 DB error; 8 tmux error.
+- References: canonical spec in `docs/specs/errors-and-timeouts.md`; machine-readable defaults in `config/defaults.yaml`.
 
 Milestones (M0–M9)
 - M0 Config/Doctor
@@ -46,3 +47,4 @@ NDJSON schema (required fields)
 ```json
 {"ts":"2025-09-15T14:03:21.123Z","level":"info","project_id":"demo","agent_role":"backend","agent_id":"backend","provider":"gemini","session_id":"gemini:demo:backend:...","broadcast_id":null,"direction":"agent","event":"stdout_line","message_id":"...","text":"First response line","dur_ms":12}
 ```
+
