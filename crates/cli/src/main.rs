@@ -49,6 +49,15 @@ enum Commands {
         /// Target: @all, @role, or agent name
         #[arg(long)] to: String,
         #[arg(long)] message: String,
+        /// Optional: provide explicit session id (e.g., for Claude)
+        #[arg(long)] session_id: Option<String>,
+        /// Optional: provide explicit chat id (for cursor-agent)
+        #[arg(long)] chat_id: Option<String>,
+    },
+    /// Session management
+    Session {
+        #[command(subcommand)]
+        cmd: SessionCmd,
     },
 }
 
@@ -89,6 +98,16 @@ enum DbCmd {
     },
 }
 
+#[derive(Subcommand, Debug)]
+enum SessionCmd {
+    /// Start a provider session and print conversation_id
+    Start {
+        #[arg(long, value_name = "PATH")] project_file: String,
+        #[arg(long, value_name = "PATH")] providers_file: String,
+        #[arg(long)] agent: String,
+    },
+}
+
 #[derive(Copy, Clone, Debug, ValueEnum)]
 enum Format { Text, Json }
 
@@ -108,8 +127,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             DbCmd::AgentAdd { project, name, role, provider, model, allowed_tool, system_prompt, db_path } =>
                 run_agent_add(&project, &name, &role, &provider, &model, &allowed_tool, &system_prompt, db_path.as_deref()),
         },
-        Commands::Send { project_file, providers_file, to, message } => {
-            run_send(&project_file, &providers_file, &to, &message)
+        Commands::Send { project_file, providers_file, to, message, session_id, chat_id } => {
+            run_send(&project_file, &providers_file, &to, &message, session_id.as_deref(), chat_id.as_deref())
+        },
+        Commands::Session { cmd } => match cmd {
+            SessionCmd::Start { project_file, providers_file, agent } =>
+                run_session_start(&project_file, &providers_file, &agent),
         },
     }
 }
@@ -199,7 +222,7 @@ fn looks_like_uuid(s: &str) -> bool { s.len() >= 16 && s.chars().all(|c| c.is_as
 const DEFAULT_SEND_TIMEOUT_MS: u64 = 120_000;
 const MAX_CONCURRENCY: usize = 3;
 
-fn run_send(project_path: &str, providers_path: &str, to: &str, message: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn run_send(project_path: &str, providers_path: &str, to: &str, message: &str, session_id_opt: Option<&str>, chat_id_opt: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
     let proj_s = fs::read_to_string(project_path)?;
     let prov_s = fs::read_to_string(providers_path)?;
     let project = match parse_project_yaml(&proj_s) { Ok(p) => p, Err(e) => return exit_with(2, format!("project: {}", e)) };
@@ -235,9 +258,16 @@ fn run_send(project_path: &str, providers_path: &str, to: &str, message: &str) -
         let agent_allowed = agent.allowed_tools.clone();
         let agent_system = agent.system_prompt.clone();
         let message_owned = message.to_string();
+        let session_id_owned = session_id_opt.map(|s| s.to_string());
+        let chat_id_owned = chat_id_opt.map(|s| s.to_string());
         handles.push(thread::spawn(move || {
             match prov_cfg {
-                Some(tpl) => run_oneshot_provider(&project_name, &agent_role, &provider_key, &tpl, &message_owned, &agent_system, &agent_allowed, DEFAULT_SEND_TIMEOUT_MS),
+                Some(tpl) => run_oneshot_provider(
+                    &project_name, &agent_role, &provider_key, &tpl,
+                    &message_owned, &agent_system, &agent_allowed,
+                    session_id_owned.as_deref(), chat_id_owned.as_deref(),
+                    DEFAULT_SEND_TIMEOUT_MS
+                ),
                 None => 3, // provider unavailable in config
             }
         }));
@@ -263,6 +293,8 @@ fn run_oneshot_provider(
     prompt: &str,
     system_prompt: &str,
     allowed_tools: &[String],
+    session_id_opt: Option<&str>,
+    chat_id_opt: Option<&str>,
     timeout_ms: u64,
 ) -> i32 {
     let bin = tpl.cmd.clone();
@@ -272,11 +304,13 @@ fn run_oneshot_provider(
     // Placeholder replacement
     let mut unresolved = false;
     for a in &mut args {
-        if a.contains("{chat_id}") { unresolved = true; }
+        if a.contains("{chat_id}") {
+            if let Some(cid) = chat_id_opt { *a = a.replace("{chat_id}", cid); } else { unresolved = true; }
+        }
         *a = a.replace("{prompt}", prompt)
              .replace("{system_prompt}", system_prompt)
              .replace("{allowed_tools}", &allowed_join)
-             .replace("{session_id}", &format!("oneshot-{}", short_id()));
+             .replace("{session_id}", session_id_opt.unwrap_or(&format!("oneshot-{}", short_id())));
     }
     if unresolved { return 2; }
 
@@ -320,6 +354,55 @@ fn log_ndjson(project: &str, agent_role: &str, provider: &str, session_id: Optio
 }
 
 fn short_id() -> String { format!("{:x}", Instant::now().elapsed().as_nanos()) }
+
+fn run_session_start(project_path: &str, providers_path: &str, agent_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let proj_s = fs::read_to_string(project_path)?;
+    let prov_s = fs::read_to_string(providers_path)?;
+    let project = parse_project_yaml(&proj_s).map_err(|e| format!("project: {}", e))
+        .or_else(|e| exit_with(2, e))?;
+    let providers = parse_providers_yaml(&prov_s).map_err(|e| format!("providers: {}", e))
+        .or_else(|e| exit_with(2, e))?;
+    let agent = match project.agents.iter().find(|a| a.name == agent_name) {
+        Some(a) => a,
+        None => return exit_with(2, format!("unknown agent: {}", agent_name)),
+    };
+    let provider_key = &agent.provider;
+    let tpl = match providers.providers.get(provider_key) {
+        Some(t) => t,
+        None => return exit_with(3, format!("provider not found: {}", provider_key)),
+    };
+    let conv_id = if provider_key.starts_with("cursor") {
+        // create chat if args available
+        if let Some(create_args) = &tpl.create_chat_args {
+            let args: Vec<String> = create_args.iter()
+                .map(|a| a.replace("{system_prompt}", &agent.system_prompt))
+                .collect();
+            match run_with_timeout(&tpl.cmd, &args.iter().map(|s| s.as_str()).collect::<Vec<_>>(), Duration::from_millis(5000)) {
+                Ok((_code, out, err)) => {
+                    let text = if !out.trim().is_empty() { out } else { err };
+                    // naive: take last non-empty line as chat_id
+                    let id = text.lines().filter(|l| !l.trim().is_empty()).last().unwrap_or("").trim().to_string();
+                    if id.is_empty() { return exit_with(4, "cursor create-chat returned empty id".into()); }
+                    id
+                }
+                Err(e) => {
+                    if e == "timeout" { return exit_with(5, "cursor create-chat timeout".into()); }
+                    return exit_with(4, format!("cursor create-chat error: {}", e));
+                }
+            }
+        } else {
+            return exit_with(2, "cursor provider missing create_chat_args".into());
+        }
+    } else if provider_key == "claude" {
+        format!("claude:{}:{}", agent.name, short_id())
+    } else if provider_key == "gemini" {
+        format!("gemini:{}:{}", agent.name, short_id())
+    } else {
+        short_id()
+    };
+    println!("conversation_id={}", conv_id);
+    Ok(())
+}
 
 // ---- doctor implementation ----
 
