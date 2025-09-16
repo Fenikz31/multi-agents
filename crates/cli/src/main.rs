@@ -252,7 +252,7 @@ fn probe_tmux(timeout_ms: u64) -> ProbeResult {
 }
 
 fn probe_git(timeout_ms: u64) -> ProbeResult {
-    let mut supports = BTreeMap::new();
+    let supports = BTreeMap::new();
     let mut timed_out = false;
     let mut error = None;
     let version = probe_version("git", &[&["--version"], &["version"]], timeout_ms);
@@ -273,7 +273,7 @@ fn run_doctor(format: Format, ndjson_sample: Option<&str>) -> Result<(), Box<dyn
     let per_timeout = DEFAULT_TIMEOUT_PER_PROVIDER_MS;
     let _global_timeout = DEFAULT_TIMEOUT_GLOBAL_MS; // reserved for future aggregation
 
-    let mut results = vec![
+    let results = vec![
         probe_gemini(per_timeout),
         probe_claude(per_timeout),
         probe_cursor(per_timeout),
