@@ -11,6 +11,7 @@ Milestones (M0–M9)
 - M0 Config/Doctor
   - Commands: `multi-agents doctor`, `multi-agents config validate`.
   - Must: detect CLIs and key flags; validate YAML; exit 0 only when all required are OK.
+  - Doctor options: `--format text|json`, `--ndjson-sample <path>`, `--snapshot <path>` (writes JSON report)
   - Timeouts: 2s/provider (version/help); 10s global.
 - M1 Data Model (SQLite)
   - Commands: `multi-agents db init`, `project add`, `agent add`.

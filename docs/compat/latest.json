@@ -1,0 +1,52 @@
+{
+  "results": [
+    {
+      "error": "timeout",
+      "name": "gemini",
+      "present": false,
+      "supports": {},
+      "timed_out": true,
+      "version": null
+    },
+    {
+      "error": "timeout",
+      "name": "claude",
+      "present": false,
+      "supports": {},
+      "timed_out": true,
+      "version": null
+    },
+    {
+      "error": null,
+      "name": "cursor-agent",
+      "present": true,
+      "supports": {
+        "create_chat": true,
+        "output_format": true,
+        "print": true,
+        "resume": true
+      },
+      "timed_out": false,
+      "version": "2025.09.12-4852336"
+    },
+    {
+      "error": null,
+      "name": "tmux",
+      "present": true,
+      "supports": {
+        "pipe_pane": true
+      },
+      "timed_out": false,
+      "version": "tmux 3.4"
+    },
+    {
+      "error": null,
+      "name": "git",
+      "present": true,
+      "supports": {},
+      "timed_out": false,
+      "version": "git version 2.43.0"
+    }
+  ],
+  "status": "KO"
+}
