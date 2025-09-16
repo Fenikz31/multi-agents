@@ -5,7 +5,7 @@ Files
 - `providers.yaml`: per-provider command templates and flags.
 - `.env`: optional secrets if CLIs require them.
 
-project.yaml (example)
+project.yaml (minimal example)
 ```yaml
 project: demo-app
 agents:
@@ -25,7 +25,7 @@ agents:
       Backend engineer. Respond in up to 5 bullet points.
   - name: frontend
     role: frontend
-    provider: cursor
+    provider: cursor-agent
     model: gpt-5
     allowed_tools: ["Edit", "Search"]
     system_prompt: >
@@ -35,18 +35,24 @@ groups:
     members: ["supervisor", "backend", "frontend"]
 ```
 
-providers.yaml (example)
+providers.yaml (minimal example)
 ```yaml
 providers:
   claude:
     cmd: "claude"
     oneshot_args: ["-p","--print","--output-format","text","{prompt}","--session-id","{session_id}","--allowed-tools","{allowed_tools}","--permission-mode","plan"]
     repl_args: []  # "claude" REPL; resume via -r {session_id}
-  cursor:
+  cursor-agent:
     cmd: "cursor-agent"
     oneshot_args: ["-p","--output-format","text","--resume","{chat_id}","{prompt}"]
     repl_args: ["agent","--resume","{chat_id}"]
     forbid_flags: ["--force"]
+Complete examples
+- See `examples/project-complete.yaml` and `examples/providers-complete.yaml`
+
+Invalid examples (for testing)
+- `examples/project-invalid-missing-fields.yaml`
+- `examples/providers-invalid-placeholders.yaml`
   gemini:
     cmd: "gemini"
     oneshot_args: ["{prompt}"]
