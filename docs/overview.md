@@ -7,7 +7,7 @@
 - Orchestrator CLI (Rust): routes commands, composes provider invocations, enforces allowlists and concurrency (3).
 - Providers (wrappers): templates for `gemini`, `claude`, `cursor-agent` in one-shot or REPL.
 - Session Manager: maps internal `conversation_id` to provider `session_id`/`chat_id`.
-- tmux Manager: one pane per agent; REPL startup; keystroke broadcast; log capture.
+- tmux Manager: one pane per agent; REPL startup; keystroke broadcast; log capture. See `docs/tmux.md` for naming and pipe-pane conventions.
 - Store (SQLite): projects, agents, sessions, messages, tasks, broadcasts.
 - TUI (ratatui): Kanban board, sessions list, session detail (NDJSON tail).
 
