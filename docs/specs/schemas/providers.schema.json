@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ProvidersConfig",
+  "type": "object",
+  "properties": {
+    "providers": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/ProviderTemplate"
+      }
+    },
+    "schema_version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "providers"
+  ],
+  "$defs": {
+    "ProviderTemplate": {
+      "type": "object",
+      "properties": {
+        "allowlist_flag": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "cmd": {
+          "type": "string"
+        },
+        "create_chat_args": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "default": null,
+          "items": {
+            "type": "string"
+          }
+        },
+        "forbid_flags": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "default": null,
+          "items": {
+            "type": "string"
+          }
+        },
+        "oneshot_args": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "repl_args": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "cmd"
+      ]
+    }
+  }
+}

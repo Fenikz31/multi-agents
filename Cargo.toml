@@ -1,0 +1,9 @@
+[workspace]
+members = [
+  "crates/config-model",
+  "tools/schema-gen",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"

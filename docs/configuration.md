@@ -56,3 +56,12 @@ providers:
 Validation
 - `multi-agents config validate --project-file project.yaml --providers-file providers.yaml`.
 - Fails on missing roles, unknown tools per provider, or malformed placeholders.
+
+JSON Schemas
+- Generated from Rust models (Serde + schemars):
+  - `docs/specs/schemas/project.schema.json`
+  - `docs/specs/schemas/providers.schema.json`
+- Regenerate with:
+```bash
+cargo run -p schema-gen -- --out-dir docs/specs/schemas
+```
