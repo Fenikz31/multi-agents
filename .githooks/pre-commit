@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Fail on warnings for build/clippy/tests
+export RUSTFLAGS="-D warnings"
+
+echo "[pre-commit] cargo update (locked to compatible versions)" >&2
+cargo update -q || { echo "[pre-commit] cargo update failed" >&2; exit 1; }
+
+echo "[pre-commit] cargo build --workspace" >&2
+cargo build --workspace || { echo "[pre-commit] build failed" >&2; exit 1; }
+
+echo "[pre-commit] cargo clippy -- -D warnings" >&2
+cargo clippy --workspace --all-targets --all-features -- -D warnings || { echo "[pre-commit] clippy failed" >&2; exit 1; }
+
+echo "[pre-commit] cargo test --workspace" >&2
+cargo test --workspace || { echo "[pre-commit] tests failed" >&2; exit 1; }
+
+echo "[pre-commit] OK" >&2

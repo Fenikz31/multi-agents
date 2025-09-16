@@ -34,6 +34,22 @@ Ce guide décrit comment contribuer avec GitLab (self‑hosted), la convention d
 - Respectez l’EditorConfig et les fins de ligne LF.
 - Les données runtime (`/data`, `/logs`) et secrets (`.env`) ne sont pas commités.
 
+## Hooks Git locaux (pré‑commit)
+
+Pour éviter tout commit avec des warnings/erreurs Rust, installez le hook pré‑commit fourni :
+
+```
+scripts/install-git-hooks.sh
+```
+
+Le hook exécute automatiquement, et bloque le commit en cas d’échec :
+- `cargo update`
+- `RUSTFLAGS="-D warnings" cargo build --workspace`
+- `cargo clippy --workspace --all-targets --all-features -- -D warnings`
+- `RUSTFLAGS="-D warnings" cargo test --workspace`
+
+Vous pouvez inspecter/éditer le hook dans `.githooks/pre-commit`.
+
 ## Processus type (ex : M0‑01)
 
 1) Créez la branche : `git checkout -b chore/m0-01-error-codes-and-timeouts`
