@@ -1,0 +1,14 @@
+schema_version: 1
+providers:
+  claude:
+    cmd: "claude"
+    oneshot_args: []  # missing {prompt}
+    repl_args: []
+  cursor-agent:
+    cmd: "cursor-agent"
+    oneshot_args: ["{prompt}"]  # missing {chat_id}
+    repl_args: ["agent"]       # missing {chat_id}
+  gemini:
+    cmd: "gemini"
+    oneshot_args: ["foo", "bar"] # missing {prompt}
+    repl_args: ["-i"]            # missing {system_prompt}

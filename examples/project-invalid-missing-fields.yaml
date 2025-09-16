@@ -1,0 +1,13 @@
+schema_version: 2  # invalid version
+project: 
+agents:
+  - name: ""
+    role: backend
+    provider: unknown
+    model: m
+    allowed_tools: []
+    system_prompt: ""
+
+groups:
+  - name: g1
+    members: ["unknown-agent"]
