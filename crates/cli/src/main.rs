@@ -5,10 +5,12 @@ use config_model::{
 use db::{open_or_create_db, insert_project, insert_agent, find_project_id, IdOrName};
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 use serde_json::Value;
+use db::now_iso8601_utc;
+use std::thread;
 
 #[derive(Parser, Debug)]
 #[command(name = "multi-agents", version)]
@@ -39,6 +41,14 @@ enum Commands {
     Db {
         #[command(subcommand)]
         cmd: DbCmd,
+    },
+    /// Send a one-shot message to agent(s)
+    Send {
+        #[arg(long, value_name = "PATH")] project_file: String,
+        #[arg(long, value_name = "PATH")] providers_file: String,
+        /// Target: @all, @role, or agent name
+        #[arg(long)] to: String,
+        #[arg(long)] message: String,
     },
 }
 
@@ -97,6 +107,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             DbCmd::ProjectAdd { name, db_path } => run_project_add(&name, db_path.as_deref()),
             DbCmd::AgentAdd { project, name, role, provider, model, allowed_tool, system_prompt, db_path } =>
                 run_agent_add(&project, &name, &role, &provider, &model, &allowed_tool, &system_prompt, db_path.as_deref()),
+        },
+        Commands::Send { project_file, providers_file, to, message } => {
+            run_send(&project_file, &providers_file, &to, &message)
         },
     }
 }
@@ -180,6 +193,133 @@ fn run_agent_add(project_sel: &str, name: &str, role: &str, provider: &str, mode
 }
 
 fn looks_like_uuid(s: &str) -> bool { s.len() >= 16 && s.chars().all(|c| c.is_ascii_hexdigit() || c == '-') }
+
+// ---- send oneshot implementation ----
+
+const DEFAULT_SEND_TIMEOUT_MS: u64 = 120_000;
+const MAX_CONCURRENCY: usize = 3;
+
+fn run_send(project_path: &str, providers_path: &str, to: &str, message: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let proj_s = fs::read_to_string(project_path)?;
+    let prov_s = fs::read_to_string(providers_path)?;
+    let project = match parse_project_yaml(&proj_s) { Ok(p) => p, Err(e) => return exit_with(2, format!("project: {}", e)) };
+    let providers = match parse_providers_yaml(&prov_s) { Ok(p) => p, Err(e) => return exit_with(2, format!("providers: {}", e)) };
+
+    // Resolve targets
+    let mut targets: Vec<&config_model::AgentConfig> = Vec::new();
+    if to == "@all" {
+        targets.extend(project.agents.iter());
+    } else if to.starts_with('@') {
+        let role = &to[1..];
+        targets.extend(project.agents.iter().filter(|a| a.role == role));
+    } else {
+        if let Some(agent) = project.agents.iter().find(|a| a.name == to) {
+            targets.push(agent);
+        }
+    }
+    if targets.is_empty() { return exit_with(2, format!("send: no targets matched '{}" , to)); }
+
+    // Execute with bounded concurrency
+    let mut handles: Vec<std::thread::JoinHandle<i32>> = Vec::new();
+    let mut results: Vec<i32> = Vec::new();
+    for agent in targets {
+        // batch if needed
+        if handles.len() >= MAX_CONCURRENCY {
+            let code = handles.remove(0).join().unwrap_or(1);
+            results.push(code);
+        }
+        let provider_key = agent.provider.clone();
+        let prov_cfg = providers.providers.get(&provider_key).cloned();
+        let project_name = project.project.clone();
+        let agent_role = agent.role.clone();
+        let agent_allowed = agent.allowed_tools.clone();
+        let agent_system = agent.system_prompt.clone();
+        let message_owned = message.to_string();
+        handles.push(thread::spawn(move || {
+            match prov_cfg {
+                Some(tpl) => run_oneshot_provider(&project_name, &agent_role, &provider_key, &tpl, &message_owned, &agent_system, &agent_allowed, DEFAULT_SEND_TIMEOUT_MS),
+                None => 3, // provider unavailable in config
+            }
+        }));
+    }
+    // join remaining
+    for h in handles { results.push(h.join().unwrap_or(1)); }
+
+    // derive overall exit code priority: 5 > 4 > 3 > 2 > 0
+    let mut overall = 0;
+    if results.iter().any(|&c| c == 5) { overall = 5; }
+    else if results.iter().any(|&c| c == 4) { overall = 4; }
+    else if results.iter().any(|&c| c == 3) { overall = 3; }
+    else if results.iter().any(|&c| c == 2) { overall = 2; }
+    if overall != 0 { return exit_with(overall, format!("send: {} targets processed with non-zero codes", results.len())); }
+    Ok(())
+}
+
+fn run_oneshot_provider(
+    project: &str,
+    agent_role: &str,
+    provider_key: &str,
+    tpl: &config_model::ProviderTemplate,
+    prompt: &str,
+    system_prompt: &str,
+    allowed_tools: &[String],
+    timeout_ms: u64,
+) -> i32 {
+    let bin = tpl.cmd.clone();
+    if bin.trim().is_empty() { return 3; }
+    let allowed_join = allowed_tools.join(",");
+    let mut args = tpl.oneshot_args.clone();
+    // Placeholder replacement
+    let mut unresolved = false;
+    for a in &mut args {
+        if a.contains("{chat_id}") { unresolved = true; }
+        *a = a.replace("{prompt}", prompt)
+             .replace("{system_prompt}", system_prompt)
+             .replace("{allowed_tools}", &allowed_join)
+             .replace("{session_id}", &format!("oneshot-{}", short_id()));
+    }
+    if unresolved { return 2; }
+
+    // Execute
+    let start_ts = now_iso8601_utc();
+    log_ndjson(project, agent_role, provider_key, None, "system", "start", None, None, Some(&start_ts));
+    match run_with_timeout(&bin, &args.iter().map(|s| s.as_str()).collect::<Vec<_>>(), Duration::from_millis(timeout_ms)) {
+        Ok((code, out, err)) => {
+            for line in out.lines() { log_ndjson(project, agent_role, provider_key, None, "agent", "stdout_line", Some(line), None, None); }
+            for line in err.lines() { log_ndjson(project, agent_role, provider_key, None, "agent", "stderr_line", Some(line), None, None); }
+            log_ndjson(project, agent_role, provider_key, None, "system", "end", None, Some(code), None);
+            if code == 0 { 0 } else { 4 }
+        }
+        Err(e) => {
+            if e == "timeout" { log_ndjson(project, agent_role, provider_key, None, "system", "end", None, Some(5), None); 5 }
+            else if e.contains("No such file") || e.contains("not found") { 3 }
+            else { 4 }
+        }
+    }
+}
+
+fn log_ndjson(project: &str, agent_role: &str, provider: &str, session_id: Option<&str>, direction: &str, event: &str, text: Option<&str>, exit_code: Option<i32>, ts_opt: Option<&str>) {
+    let ts = ts_opt.map(|s| s.to_string()).unwrap_or_else(|| now_iso8601_utc());
+    let obj = serde_json::json!({
+        "ts": ts,
+        "project_id": project,
+        "agent_role": agent_role,
+        "provider": provider,
+        "session_id": session_id.unwrap_or("") ,
+        "direction": direction,
+        "event": event,
+        "text": text,
+        "exit_code": exit_code,
+    });
+    let dir = format!("./logs/{project}");
+    let _ = fs::create_dir_all(&dir);
+    let path = format!("{}/{}.ndjson", dir, agent_role);
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(&mut f, "{}", obj);
+    }
+}
+
+fn short_id() -> String { format!("{:x}", Instant::now().elapsed().as_nanos()) }
 
 // ---- doctor implementation ----
 
