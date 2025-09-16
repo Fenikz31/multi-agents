@@ -477,3 +477,55 @@ fn ndjson_self_check(path: &str) -> Result<Value, String> {
         "errors": errors,
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::File;
+    use std::io::Write;
+
+    fn write_tmp(contents: &str) -> String {
+        let mut p = std::env::temp_dir();
+        p.push(format!("multi-agents-test-{}.ndjson", uuid_like()));
+        let mut f = File::create(&p).expect("create temp file");
+        f.write_all(contents.as_bytes()).expect("write temp file");
+        p.to_string_lossy().to_string()
+    }
+
+    fn uuid_like() -> String {
+        // simple unique-ish string using nanos timestamp
+        format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos())
+    }
+
+    #[test]
+    fn ndjson_ok_single_line() {
+        let line = r#"{"ts":"2025-09-15T14:03:21.123Z","project_id":"demo","agent_role":"backend","provider":"gemini","session_id":"s1","direction":"agent","event":"stdout_line"}"#;
+        let path = write_tmp(&format!("{}\n", line));
+        let rep = ndjson_self_check(&path).expect("self check");
+        assert_eq!(rep["errors"].as_array().unwrap().len(), 0);
+        assert_eq!(rep["ok_lines"].as_u64().unwrap(), 1);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn ndjson_detects_invalid_and_missing_fields() {
+        let invalid = "not json\n";
+        let missing = r#"{"ts":"2025-09-15T14:03:21.123Z","project_id":"demo","agent_role":"backend","provider":"gemini","session_id":"s1","direction":"agent"}"#; // missing event
+        let path = write_tmp(&format!("{}{}\n", invalid, missing));
+        let rep = ndjson_self_check(&path).expect("self check");
+        let errs = rep["errors"].as_array().unwrap();
+        assert!(errs.iter().any(|e| e["error"] == "invalid_json"));
+        assert!(errs.iter().any(|e| e["error"] == "missing_field" && e["field"] == "event"));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn ndjson_detects_ansi() {
+        let ansi = "\u{1b}[31mred\u{1b}[0m\n"; // will not be valid JSON and also ANSI
+        let path = write_tmp(ansi);
+        let rep = ndjson_self_check(&path).expect("self check");
+        let errs = rep["errors"].as_array().unwrap();
+        assert!(errs.iter().any(|e| e["error"] == "ansi_codes_forbidden"));
+        let _ = std::fs::remove_file(path);
+    }
+}
