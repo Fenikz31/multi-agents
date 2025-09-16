@@ -30,6 +30,9 @@ enum Commands {
         /// Optional: path to NDJSON sample to self-check parsing
         #[arg(long, value_name = "PATH")]
         ndjson_sample: Option<String>,
+        /// Optional: write JSON snapshot of detected capabilities to file
+        #[arg(long, value_name = "PATH")]
+        snapshot: Option<String>,
     },
 }
 
@@ -55,7 +58,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 run_config_validate(&project_file, &providers_file, format)
             }
         },
-        Commands::Doctor { format, ndjson_sample } => run_doctor(format, ndjson_sample.as_deref()),
+        Commands::Doctor { format, ndjson_sample, snapshot } => run_doctor(format, ndjson_sample.as_deref(), snapshot.as_deref()),
     }
 }
 
@@ -269,7 +272,7 @@ fn probe_git(timeout_ms: u64) -> ProbeResult {
     ProbeResult { name: "git".into(), present: true, version, supports, timed_out, error }
 }
 
-fn run_doctor(format: Format, ndjson_sample: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+fn run_doctor(format: Format, ndjson_sample: Option<&str>, snapshot_path: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
     let per_timeout = DEFAULT_TIMEOUT_PER_PROVIDER_MS;
     let _global_timeout = DEFAULT_TIMEOUT_GLOBAL_MS; // reserved for future aggregation
 
@@ -338,6 +341,16 @@ fn run_doctor(format: Format, ndjson_sample: Option<&str>) -> Result<(), Box<dyn
         }
     }
 
+    // Build JSON root for snapshot/printing
+    let root_json = build_doctor_json(status_text, &results, ndjson_report.clone());
+
+    // Write snapshot if requested (even if status is KO/DEGRADE)
+    if let Some(path) = snapshot_path {
+        let parent = std::path::Path::new(path).parent();
+        if let Some(dir) = parent { if !dir.as_os_str().is_empty() { let _ = std::fs::create_dir_all(dir); } }
+        std::fs::write(path, serde_json::to_vec_pretty(&root_json)?)?;
+    }
+
     match format {
         Format::Text => {
             println!("doctor: {}", status_text);
@@ -363,29 +376,7 @@ fn run_doctor(format: Format, ndjson_sample: Option<&str>) -> Result<(), Box<dyn
             }
         }
         Format::Json => {
-            let arr: Vec<_> = results
-                .into_iter()
-                .map(|r| {
-                    serde_json::json!({
-                        "name": r.name,
-                        "present": r.present,
-                        "version": r.version,
-                        "supports": r.supports,
-                        "timed_out": r.timed_out,
-                        "error": r.error,
-                    })
-                })
-                .collect();
-            let mut root = serde_json::json!({
-                "status": status_text,
-                "results": arr
-            });
-            if let Some(rep) = ndjson_report {
-                if let Some(obj) = root.as_object_mut() {
-                    obj.insert("ndjson".into(), rep);
-                }
-            }
-            println!("{}", root);
+            println!("{}", root_json);
         }
     }
 
@@ -403,6 +394,32 @@ fn run_doctor(format: Format, ndjson_sample: Option<&str>) -> Result<(), Box<dyn
         return exit_with(1, "doctor: environment degraded (missing key flags)".into());
     }
     Ok(())
+}
+
+fn build_doctor_json(status_text: &str, results: &Vec<ProbeResult>, ndjson_report: Option<Value>) -> Value {
+    let arr: Vec<_> = results
+        .iter()
+        .map(|r| {
+            serde_json::json!({
+                "name": r.name,
+                "present": r.present,
+                "version": r.version,
+                "supports": r.supports,
+                "timed_out": r.timed_out,
+                "error": r.error,
+            })
+        })
+        .collect();
+    let mut root = serde_json::json!({
+        "status": status_text,
+        "results": arr
+    });
+    if let Some(rep) = ndjson_report {
+        if let Some(obj) = root.as_object_mut() {
+            obj.insert("ndjson".into(), rep);
+        }
+    }
+    root
 }
 
 fn has_ansi(s: &str) -> bool {
