@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use config_model::{
     parse_project_yaml, parse_providers_yaml, validate_project_config, validate_providers_config,
 };
+use db::{open_or_create_db, insert_project, insert_agent, find_project_id, IdOrName};
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{BufRead, BufReader, Read};
@@ -34,6 +35,11 @@ enum Commands {
         #[arg(long, value_name = "PATH")]
         snapshot: Option<String>,
     },
+    /// Database commands
+    Db {
+        #[command(subcommand)]
+        cmd: DbCmd,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -43,6 +49,33 @@ enum ConfigCmd {
         #[arg(long, value_name = "PATH")] project_file: String,
         #[arg(long, value_name = "PATH")] providers_file: String,
         #[arg(long, value_enum, default_value_t = Format::Text)] format: Format,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum DbCmd {
+    /// Initialize the SQLite database (idempotent)
+    Init {
+        #[arg(long, value_name = "PATH")]
+        db_path: Option<String>,
+    },
+    /// Add a new project
+    ProjectAdd {
+        #[arg(long)] name: String,
+        #[arg(long, value_name = "PATH")] db_path: Option<String>,
+    },
+    /// Add a new agent to a project
+    AgentAdd {
+        /// Project id or name
+        #[arg(long)] project: String,
+        #[arg(long)] name: String,
+        #[arg(long)] role: String,
+        #[arg(long)] provider: String,
+        #[arg(long)] model: String,
+        /// Repeatable flag for allowed tools
+        #[arg(long = "allowed-tool")] allowed_tool: Vec<String>,
+        #[arg(long = "system-prompt")] system_prompt: String,
+        #[arg(long, value_name = "PATH")] db_path: Option<String>,
     },
 }
 
@@ -59,6 +92,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         },
         Commands::Doctor { format, ndjson_sample, snapshot } => run_doctor(format, ndjson_sample.as_deref(), snapshot.as_deref()),
+        Commands::Db { cmd } => match cmd {
+            DbCmd::Init { db_path } => run_db_init(db_path.as_deref()),
+            DbCmd::ProjectAdd { name, db_path } => run_project_add(&name, db_path.as_deref()),
+            DbCmd::AgentAdd { project, name, role, provider, model, allowed_tool, system_prompt, db_path } =>
+                run_agent_add(&project, &name, &role, &provider, &model, &allowed_tool, &system_prompt, db_path.as_deref()),
+        },
     }
 }
 
@@ -100,6 +139,47 @@ fn exit_with<T>(code: i32, msg: String) -> Result<T, Box<dyn std::error::Error>>
     eprintln!("{}", msg);
     std::process::exit(code);
 }
+
+// ---- db commands ----
+
+fn default_db_path() -> String { "./data/multi-agents.sqlite3".into() }
+
+fn run_db_init(db_path: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+    let binding;
+    let path = match db_path { Some(p) => p, None => { binding = default_db_path(); &binding } };
+    match open_or_create_db(path) {
+        Ok(_) => { println!("OK: db initialized"); Ok(()) }
+        Err(e) => exit_with(7, format!("db: {}", e)),
+    }
+}
+
+fn run_project_add(name: &str, db_path: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+    let binding;
+    let path = match db_path { Some(p) => p, None => { binding = default_db_path(); &binding } };
+    let conn = match open_or_create_db(path) { Ok(c) => c, Err(e) => return exit_with(7, format!("db: {}", e)) };
+    match insert_project(&conn, name) {
+        Ok(p) => { println!("project_id={} name={}", p.id, p.name); Ok(()) }
+        Err(db::DbError::InvalidInput(e)) => exit_with(2, format!("project: {}", e)),
+        Err(e) => exit_with(7, format!("project: {}", e)),
+    }
+}
+
+fn run_agent_add(project_sel: &str, name: &str, role: &str, provider: &str, model: &str, allowed_tool: &[String], system_prompt: &str, db_path: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+    let binding;
+    let path = match db_path { Some(p) => p, None => { binding = default_db_path(); &binding } };
+    let conn = match open_or_create_db(path) { Ok(c) => c, Err(e) => return exit_with(7, format!("db: {}", e)) };
+    let project_id = match find_project_id(&conn, if looks_like_uuid(project_sel) { IdOrName::Id(project_sel) } else { IdOrName::Name(project_sel) })? {
+        Some(id) => id,
+        None => return exit_with(2, format!("project not found: {}", project_sel)),
+    };
+    match insert_agent(&conn, &project_id, name, role, provider, model, allowed_tool, system_prompt) {
+        Ok(a) => { println!("agent_id={} project_id={} name={}", a.id, a.project_id, a.name); Ok(()) }
+        Err(db::DbError::InvalidInput(e)) => exit_with(2, format!("agent: {}", e)),
+        Err(e) => exit_with(7, format!("agent: {}", e)),
+    }
+}
+
+fn looks_like_uuid(s: &str) -> bool { s.len() >= 16 && s.chars().all(|c| c.is_ascii_hexdigit() || c == '-') }
 
 // ---- doctor implementation ----
 
