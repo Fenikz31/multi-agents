@@ -171,27 +171,40 @@ fn probe_version(bin: &str, candidates: &[&[&str]], timeout_ms: u64) -> Option<S
     None
 }
 
-fn probe_gemini(timeout_ms: u64) -> ProbeResult {
+fn parse_gemini_supports(help: &str) -> BTreeMap<String, bool> {
     let mut supports = BTreeMap::new();
+    supports.insert("allowed_tools".into(), help.contains("--allowed-tools"));
+    supports.insert("interactive".into(), help.contains("-i") || help.to_lowercase().contains("interactive"));
+    supports
+}
+
+fn probe_gemini(timeout_ms: u64) -> ProbeResult {
     let mut timed_out = false;
     let mut error = None;
-    // help
     let help = match probe_help("gemini", &["--help"], timeout_ms) {
         Ok(h) => h,
         Err(e) => {
             if e == "timeout" { timed_out = true; }
             error = Some(e);
-            return ProbeResult { name: "gemini".into(), present: false, version: None, supports, timed_out, error };
+            return ProbeResult { name: "gemini".into(), present: false, version: None, supports: BTreeMap::new(), timed_out, error };
         }
     };
-    supports.insert("allowed_tools".into(), help.contains("--allowed-tools"));
-    supports.insert("interactive".into(), help.contains("-i") || help.to_lowercase().contains("interactive"));
+    let supports = parse_gemini_supports(&help);
     let version = probe_version("gemini", &[&["--version"], &["version"], &["-v"]], timeout_ms);
     ProbeResult { name: "gemini".into(), present: true, version, supports, timed_out, error }
 }
 
-fn probe_claude(timeout_ms: u64) -> ProbeResult {
+fn parse_claude_supports(help: &str) -> BTreeMap<String, bool> {
     let mut supports = BTreeMap::new();
+    supports.insert("output_format".into(), help.contains("--output-format"));
+    supports.insert("session_id".into(), help.contains("--session-id"));
+    supports.insert("allowed_tools".into(), help.contains("--allowed-tools"));
+    supports.insert("permission_mode".into(), help.contains("--permission-mode"));
+    supports.insert("resume".into(), help.contains("-r") || help.contains("--resume"));
+    supports
+}
+
+fn probe_claude(timeout_ms: u64) -> ProbeResult {
     let mut timed_out = false;
     let mut error = None;
     let help = match probe_help("claude", &["--help"], timeout_ms) {
@@ -199,20 +212,24 @@ fn probe_claude(timeout_ms: u64) -> ProbeResult {
         Err(e) => {
             if e == "timeout" { timed_out = true; }
             error = Some(e);
-            return ProbeResult { name: "claude".into(), present: false, version: None, supports, timed_out, error };
+            return ProbeResult { name: "claude".into(), present: false, version: None, supports: BTreeMap::new(), timed_out, error };
         }
     };
-    supports.insert("output_format".into(), help.contains("--output-format"));
-    supports.insert("session_id".into(), help.contains("--session-id"));
-    supports.insert("allowed_tools".into(), help.contains("--allowed-tools"));
-    supports.insert("permission_mode".into(), help.contains("--permission-mode"));
-    supports.insert("resume".into(), help.contains("-r") || help.contains("--resume"));
+    let supports = parse_claude_supports(&help);
     let version = probe_version("claude", &[&["--version"], &["version"], &["-v"]], timeout_ms);
     ProbeResult { name: "claude".into(), present: true, version, supports, timed_out, error }
 }
 
-fn probe_cursor(timeout_ms: u64) -> ProbeResult {
+fn parse_cursor_supports(help: &str) -> BTreeMap<String, bool> {
     let mut supports = BTreeMap::new();
+    supports.insert("print".into(), help.contains("-p"));
+    supports.insert("output_format".into(), help.contains("--output-format"));
+    supports.insert("create_chat".into(), help.contains("create-chat"));
+    supports.insert("resume".into(), help.contains("--resume"));
+    supports
+}
+
+fn probe_cursor(timeout_ms: u64) -> ProbeResult {
     let mut timed_out = false;
     let mut error = None;
     let help = match probe_help("cursor-agent", &["--help"], timeout_ms) {
@@ -220,19 +237,21 @@ fn probe_cursor(timeout_ms: u64) -> ProbeResult {
         Err(e) => {
             if e == "timeout" { timed_out = true; }
             error = Some(e);
-            return ProbeResult { name: "cursor-agent".into(), present: false, version: None, supports, timed_out, error };
+            return ProbeResult { name: "cursor-agent".into(), present: false, version: None, supports: BTreeMap::new(), timed_out, error };
         }
     };
-    supports.insert("print".into(), help.contains("-p"));
-    supports.insert("output_format".into(), help.contains("--output-format"));
-    supports.insert("create_chat".into(), help.contains("create-chat"));
-    supports.insert("resume".into(), help.contains("--resume"));
+    let supports = parse_cursor_supports(&help);
     let version = probe_version("cursor-agent", &[&["--version"], &["version"], &["-v"]], timeout_ms);
     ProbeResult { name: "cursor-agent".into(), present: true, version, supports, timed_out, error }
 }
 
-fn probe_tmux(timeout_ms: u64) -> ProbeResult {
+fn parse_tmux_list_commands(list_cmds: &str) -> BTreeMap<String, bool> {
     let mut supports = BTreeMap::new();
+    supports.insert("pipe_pane".into(), list_cmds.contains("pipe-pane"));
+    supports
+}
+
+fn probe_tmux(timeout_ms: u64) -> ProbeResult {
     let mut timed_out = false;
     let mut error = None;
     let version = probe_version("tmux", &[&["-V"], &["--version"]], timeout_ms);
@@ -244,13 +263,13 @@ fn probe_tmux(timeout_ms: u64) -> ProbeResult {
             Err(e) => {
                 if e == "timeout" { timed_out = true; }
                 error = Some(e);
-                return ProbeResult { name: "tmux".into(), present: false, version: None, supports, timed_out, error };
+                return ProbeResult { name: "tmux".into(), present: false, version: None, supports: BTreeMap::new(), timed_out, error };
             }
         }
     }
     // pipe-pane support via list-commands
     let list = probe_help("tmux", &["list-commands"], timeout_ms).unwrap_or_default();
-    supports.insert("pipe_pane".into(), list.contains("pipe-pane"));
+    let supports = parse_tmux_list_commands(&list);
     ProbeResult { name: "tmux".into(), present: true, version, supports, timed_out, error }
 }
 
@@ -265,11 +284,17 @@ fn probe_git(timeout_ms: u64) -> ProbeResult {
             Err(e) => {
                 if e == "timeout" { timed_out = true; }
                 error = Some(e);
-                return ProbeResult { name: "git".into(), present: false, version: None, supports, timed_out, error };
+                return ProbeResult { name: "git".into(), present: false, version: None, supports: BTreeMap::new(), timed_out, error };
             }
         }
     }
     ProbeResult { name: "git".into(), present: true, version, supports, timed_out, error }
+}
+
+#[allow(dead_code)]
+fn extract_version_line(text: &str) -> Option<String> {
+    let line = text.lines().next().unwrap_or("").trim();
+    if line.is_empty() { None } else { Some(line.to_string()) }
 }
 
 fn run_doctor(format: Format, ndjson_sample: Option<&str>, snapshot_path: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
@@ -527,5 +552,32 @@ mod tests {
         let errs = rep["errors"].as_array().unwrap();
         assert!(errs.iter().any(|e| e["error"] == "ansi_codes_forbidden"));
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn parse_supports_from_help_texts() {
+        let claude_help = "--output-format --session-id --allowed-tools --permission-mode -r";
+        let s = parse_claude_supports(claude_help);
+        assert!(s.get("output_format").copied().unwrap_or(false));
+        assert!(s.get("session_id").copied().unwrap_or(false));
+        assert!(s.get("allowed_tools").copied().unwrap_or(false));
+        assert!(s.get("permission_mode").copied().unwrap_or(false));
+        assert!(s.get("resume").copied().unwrap_or(false));
+
+        let cursor_help = "-p --output-format create-chat --resume";
+        let s2 = parse_cursor_supports(cursor_help);
+        assert!(s2.get("print").copied().unwrap_or(false));
+        assert!(s2.get("output_format").copied().unwrap_or(false));
+        assert!(s2.get("create_chat").copied().unwrap_or(false));
+        assert!(s2.get("resume").copied().unwrap_or(false));
+
+        let gemini_help = "-i something --allowed-tools";
+        let s3 = parse_gemini_supports(gemini_help);
+        assert!(s3.get("interactive").copied().unwrap_or(false));
+        assert!(s3.get("allowed_tools").copied().unwrap_or(false));
+
+        let list_cmds = "list-commands\npipe-pane\nresize-pane";
+        let s4 = parse_tmux_list_commands(list_cmds);
+        assert!(s4.get("pipe_pane").copied().unwrap_or(false));
     }
 }
