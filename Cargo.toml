@@ -1,6 +1,7 @@
 [workspace]
 members = [
   "crates/config-model",
+  "crates/cli",
   "tools/schema-gen",
 ]
 resolver = "2"

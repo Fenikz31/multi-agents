@@ -1,0 +1,28 @@
+schema_version: 1
+project: demo-app
+agents:
+  - name: supervisor
+    role: supervisor
+    provider: claude
+    model: sonnet-4
+    allowed_tools: ["Search", "Edit"]
+    system_prompt: >
+      Coordinate agents, route tasks, write concise summaries.
+  - name: backend
+    role: backend
+    provider: gemini
+    model: gemini-1.5-flash
+    allowed_tools: ["Edit", "Bash(git:status)"]
+    system_prompt: >
+      Backend engineer. Respond in up to 5 bullet points.
+  - name: frontend
+    role: frontend
+    provider: cursor
+    model: gpt-5
+    allowed_tools: ["Edit", "Search"]
+    system_prompt: >
+      Frontend engineer. Prioritize accessibility and clarity.
+
+groups:
+  - name: all
+    members: ["supervisor", "backend", "frontend"]
