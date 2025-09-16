@@ -17,8 +17,10 @@ Commands
   - Optional: `--snapshot <path>` writes the full JSON report to a file (directories created if needed)
 - `multi-agents config validate --project-file <path> --providers-file <path>`
 - `multi-agents db init`
+  - Initialize SQLite database (idempotent). Exit codes: 0 OK; 7 db_error.
 - `multi-agents project add --name <name>`
 - `multi-agents agent add --project <name> --name <name> --role <role> --provider <prov> --model <model>`
+  - Exit codes: 0 OK; 2 invalid_input; 7 db_error. Prints created IDs.
 - `multi-agents session start --project <name> --agent <name>` → prints `conversation_id=<id>`
 - `multi-agents session list --project <name>`
 - `multi-agents session resume --conversation-id <id>`
