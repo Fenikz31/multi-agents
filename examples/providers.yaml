@@ -1,0 +1,17 @@
+schema_version: 1
+providers:
+  claude:
+    cmd: "claude"
+    oneshot_args: ["-p","--print","--output-format","text","{prompt}","--session-id","{session_id}","--allowed-tools","{allowed_tools}","--permission-mode","plan"]
+    repl_args: ["repl"]
+    allowlist_flag: "--allowed-tools"
+  cursor:
+    cmd: "cursor-agent"
+    oneshot_args: ["-p","--output-format","text","--resume","{chat_id}","{prompt}"]
+    repl_args: ["agent","--resume","{chat_id}"]
+    forbid_flags: ["--force"]
+  gemini:
+    cmd: "gemini"
+    oneshot_args: ["{prompt}"]
+    repl_args: ["-i","{system_prompt}","--allowed-tools","{allowed_tools}"]
+    allowlist_flag: "--allowed-tools"
