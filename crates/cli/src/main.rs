@@ -4,9 +4,10 @@ use config_model::{
 };
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::Read;
+use std::io::{BufRead, BufReader, Read};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
+use serde_json::Value;
 
 #[derive(Parser, Debug)]
 #[command(name = "multi-agents", version)]
@@ -26,6 +27,9 @@ enum Commands {
     Doctor {
         #[arg(long, value_enum, default_value_t = Format::Text)]
         format: Format,
+        /// Optional: path to NDJSON sample to self-check parsing
+        #[arg(long, value_name = "PATH")]
+        ndjson_sample: Option<String>,
     },
 }
 
@@ -51,7 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 run_config_validate(&project_file, &providers_file, format)
             }
         },
-        Commands::Doctor { format } => run_doctor(format),
+        Commands::Doctor { format, ndjson_sample } => run_doctor(format, ndjson_sample.as_deref()),
     }
 }
 
@@ -265,7 +269,7 @@ fn probe_git(timeout_ms: u64) -> ProbeResult {
     ProbeResult { name: "git".into(), present: true, version, supports, timed_out, error }
 }
 
-fn run_doctor(format: Format) -> Result<(), Box<dyn std::error::Error>> {
+fn run_doctor(format: Format, ndjson_sample: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
     let per_timeout = DEFAULT_TIMEOUT_PER_PROVIDER_MS;
     let _global_timeout = DEFAULT_TIMEOUT_GLOBAL_MS; // reserved for future aggregation
 
@@ -321,6 +325,15 @@ fn run_doctor(format: Format) -> Result<(), Box<dyn std::error::Error>> {
         "OK"
     };
 
+    // NDJSON self-check if requested
+    let mut ndjson_report: Option<serde_json::Value> = None;
+    if let Some(path) = ndjson_sample {
+        match ndjson_self_check(path) {
+            Ok(report) => ndjson_report = Some(report),
+            Err(e) => return exit_with(2, format!("ndjson: {}", e)),
+        }
+    }
+
     match format {
         Format::Text => {
             println!("doctor: {}", status_text);
@@ -341,6 +354,9 @@ fn run_doctor(format: Format) -> Result<(), Box<dyn std::error::Error>> {
                     if r.timed_out { " (timeout)" } else { "" }
                 );
             }
+            if let Some(rep) = ndjson_report {
+                println!("ndjson: {}", rep);
+            }
         }
         Format::Json => {
             let arr: Vec<_> = results
@@ -356,10 +372,16 @@ fn run_doctor(format: Format) -> Result<(), Box<dyn std::error::Error>> {
                     })
                 })
                 .collect();
-            println!("{}", serde_json::json!({
+            let mut root = serde_json::json!({
                 "status": status_text,
                 "results": arr
-            }));
+            });
+            if let Some(rep) = ndjson_report {
+                if let Some(obj) = root.as_object_mut() {
+                    obj.insert("ndjson".into(), rep);
+                }
+            }
+            println!("{}", root);
         }
     }
 
@@ -374,4 +396,60 @@ fn run_doctor(format: Format) -> Result<(), Box<dyn std::error::Error>> {
         return exit_with(1, "doctor: environment degraded (missing key flags)".into());
     }
     Ok(())
+}
+
+fn has_ansi(s: &str) -> bool {
+    // Quick heuristic: ESC [ ... m  (CSI SGR)
+    s.contains("\u{1b}[")
+}
+
+fn ndjson_self_check(path: &str) -> Result<Value, String> {
+    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let reader = BufReader::new(file);
+    let mut line_idx: usize = 0;
+    let mut errors: Vec<Value> = Vec::new();
+    let mut ok_count: usize = 0;
+
+    for line_res in reader.lines() {
+        line_idx += 1;
+        let line = line_res.map_err(|e| e.to_string())?;
+        if line.trim().is_empty() { continue; }
+        if has_ansi(&line) {
+            errors.push(serde_json::json!({"line": line_idx, "error": "ansi_codes_forbidden"}));
+            continue;
+        }
+        let v: Value = match serde_json::from_str(&line) {
+            Ok(v) => v,
+            Err(e) => {
+                errors.push(serde_json::json!({"line": line_idx, "error": "invalid_json", "detail": e.to_string()}));
+                continue;
+            }
+        };
+        // Required fields
+        let req = [
+            "ts","project_id","agent_role","provider","session_id","direction","event"
+        ];
+        let obj = match v.as_object() {
+            Some(o) => o,
+            None => {
+                errors.push(serde_json::json!({"line": line_idx, "error": "not_an_object"}));
+                continue;
+            }
+        };
+        for k in req {
+            if !obj.contains_key(k) {
+                errors.push(serde_json::json!({"line": line_idx, "error": "missing_field", "field": k}));
+            }
+        }
+        if errors.last().map(|e| e["line"].as_u64().unwrap_or(0) == line_idx as u64).unwrap_or(false) {
+            // had errors for this line
+        } else {
+            ok_count += 1;
+        }
+    }
+
+    Ok(serde_json::json!({
+        "ok_lines": ok_count,
+        "errors": errors,
+    }))
 }
