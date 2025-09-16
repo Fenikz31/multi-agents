@@ -327,9 +327,13 @@ fn run_doctor(format: Format, ndjson_sample: Option<&str>) -> Result<(), Box<dyn
 
     // NDJSON self-check if requested
     let mut ndjson_report: Option<serde_json::Value> = None;
+    let mut ndjson_invalid = false;
     if let Some(path) = ndjson_sample {
         match ndjson_self_check(path) {
-            Ok(report) => ndjson_report = Some(report),
+            Ok(report) => {
+                ndjson_invalid = report.get("errors").and_then(|e| e.as_array()).map(|a| !a.is_empty()).unwrap_or(false);
+                ndjson_report = Some(report);
+            }
             Err(e) => return exit_with(2, format!("ndjson: {}", e)),
         }
     }
@@ -385,7 +389,10 @@ fn run_doctor(format: Format, ndjson_sample: Option<&str>) -> Result<(), Box<dyn
         }
     }
 
-    // Exit codes: 0 OK; 3 provider unavailable; 5 timeout; 1 degraded
+    // Exit codes: 0 OK; 2 invalid input (ndjson invalid); 3 provider unavailable; 5 timeout; 1 degraded
+    if ndjson_invalid {
+        return exit_with(2, "doctor: ndjson sample invalid".into());
+    }
     if any_missing {
         return exit_with(3, "doctor: missing required providers".into());
     }

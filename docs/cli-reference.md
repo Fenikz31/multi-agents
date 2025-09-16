@@ -10,8 +10,10 @@ Global behavior
   - See canonical spec: `docs/specs/errors-and-timeouts.md` (human) and `config/defaults.yaml` (machine-readable).
 
 Commands
-- `multi-agents doctor`
-  - Verify CLIs, versions, flags; validate YAML schemas.
+- `multi-agents doctor [--format text|json] [--ndjson-sample <path>]`
+  - Verify CLIs, versions, flags; short timeouts.
+  - Optional: `--ndjson-sample` runs a NDJSON self-check (one JSON per line, UTF‑8, no ANSI, required fields).
+  - Exit codes: 0 OK; 1 degraded (flags manquants); 2 NDJSON invalide; 3 providers manquants; 5 timeout.
 - `multi-agents config validate --project-file <path> --providers-file <path>`
 - `multi-agents db init`
 - `multi-agents project add --name <name>`
