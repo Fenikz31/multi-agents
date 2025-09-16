@@ -56,6 +56,16 @@ providers:
 Validation
 - `multi-agents config validate --project-file project.yaml --providers-file providers.yaml`.
 - Fails on missing roles, unknown tools per provider, or malformed placeholders.
+- Additional semantic rules (M0-03):
+  - Providers:
+    - `claude`: `{prompt}` in oneshot args; `{session_id}` recommended; `{allowed_tools}` if `allowlist_flag` set.
+    - `cursor*`: `{prompt}` in oneshot args; `{chat_id}` in oneshot & repl args.
+    - `gemini`: `{prompt}` in oneshot args; `{system_prompt}` in repl args; `{allowed_tools}` if `allowlist_flag` set.
+  - Project:
+    - `schema_version == 1`.
+    - Agent names unique; provider keys must exist in providers.yaml.
+    - For `claude`/`gemini`, `allowed_tools` must not be empty; `system_prompt` non-empty.
+    - Group members must reference existing agent names.
 
 JSON Schemas
 - Generated from Rust models (Serde + schemars):
