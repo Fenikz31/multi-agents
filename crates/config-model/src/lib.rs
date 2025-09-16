@@ -71,6 +71,96 @@ pub fn parse_providers_yaml(yaml: &str) -> Result<ProvidersConfig, ConfigError> 
         .map_err(|e| ConfigError::InvalidYaml(e.to_string()))
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn project_schema_version_and_names() {
+        let yaml = r#"
+schema_version: 1
+project: demo
+agents:
+  - name: a1
+    role: r
+    provider: claude
+    model: m
+    allowed_tools: [X]
+    system_prompt: sp
+groups: []
+"#;
+        let p = parse_project_yaml(yaml).unwrap();
+        assert_eq!(p.schema_version, 1);
+        assert_eq!(p.agents.len(), 1);
+    }
+
+    #[test]
+    fn providers_placeholders_validation() {
+        let prov = r#"
+schema_version: 1
+providers:
+  claude:
+    cmd: claude
+    oneshot_args: ["{prompt}","--session-id","{session_id}"]
+    repl_args: []
+  cursor-agent:
+    cmd: cursor-agent
+    oneshot_args: ["{prompt}","--resume","{chat_id}"]
+    repl_args: ["agent","--resume","{chat_id}"]
+  gemini:
+    cmd: gemini
+    oneshot_args: ["{prompt}"]
+    repl_args: ["-i","{system_prompt}"]
+"#;
+        let cfg = parse_providers_yaml(prov).unwrap();
+        assert!(validate_providers_config(&cfg).is_ok());
+    }
+
+    #[test]
+    fn providers_missing_placeholders_fail() {
+        let prov = r#"
+schema_version: 1
+providers:
+  claude:
+    cmd: claude
+    oneshot_args: []
+    repl_args: []
+"#;
+        let cfg = parse_providers_yaml(prov).unwrap();
+        let err = validate_providers_config(&cfg).unwrap_err();
+        let msg = format!("{}", err);
+        assert!(msg.contains("providers.claude.oneshot_args must include {prompt}"));
+    }
+
+    #[test]
+    fn project_validation_checks_provider_and_allowed_tools() {
+        let prov = r#"
+schema_version: 1
+providers:
+  claude:
+    cmd: claude
+    oneshot_args: ["{prompt}","--session-id","{session_id}"]
+    repl_args: []
+"#;
+        let providers = parse_providers_yaml(prov).unwrap();
+        let project = r#"
+schema_version: 1
+project: demo
+agents:
+  - name: a1
+    role: r
+    provider: claude
+    model: m
+    allowed_tools: []
+    system_prompt: sp
+"#;
+        let p = parse_project_yaml(project).unwrap();
+        let err = validate_project_config(&p, &providers).unwrap_err();
+        let msg = format!("{}", err);
+        assert!(msg.contains("allowed_tools must not be empty"));
+    }
+}
+
 pub fn json_schema_project() -> schemars::Schema {
     schemars::schema_for!(ProjectConfig)
 }

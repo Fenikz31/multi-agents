@@ -9,8 +9,9 @@ One-shot user send
 Agent REPL (tmux)
 1) Create tmux session `proj:{project}` if missing.
 2) Create window `{role}:{agent}`; run provider REPL with system prompt.
-3) Pipe pane to `./logs/{project}/{role}.ndjson`.
+3) Pipe pane to `./logs/{project}/{role}.ndjson` using `pipe-pane -o`.
 4) Send messages via `tmux send-keys`.
+5) See `docs/tmux.md` for detailed commands.
 
 Broadcast
 - One-shot: fan-out to all group members with concurrency=3; persist shared `broadcast_id`.
