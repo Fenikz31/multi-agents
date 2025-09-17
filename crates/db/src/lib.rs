@@ -138,6 +138,92 @@ fn apply_v2(conn: &Connection) -> Result<(), DbError> {
     Ok(())
 }
 
+// ---------- Session Management Types ----------
+
+#[derive(Debug, Clone)]
+pub struct Session {
+    pub id: String,
+    pub project_id: String,
+    pub agent_id: String,
+    pub provider: String,
+    pub provider_session_id: Option<String>,
+    pub created_at: String,
+    pub last_activity: Option<String>,
+    pub status: SessionStatus,
+    pub metadata: Option<String>,
+    pub expires_at: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum SessionStatus {
+    Active,
+    Expired,
+    Invalid,
+}
+
+impl std::fmt::Display for SessionStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SessionStatus::Active => write!(f, "active"),
+            SessionStatus::Expired => write!(f, "expired"),
+            SessionStatus::Invalid => write!(f, "invalid"),
+        }
+    }
+}
+
+impl std::str::FromStr for SessionStatus {
+    type Err = DbError;
+    
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "active" => Ok(SessionStatus::Active),
+            "expired" => Ok(SessionStatus::Expired),
+            "invalid" => Ok(SessionStatus::Invalid),
+            _ => Err(DbError::InvalidInput(format!("Invalid session status: {}", s))),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SessionContext {
+    pub session: Session,
+    pub is_resumable: bool,
+    pub provider_session_id: Option<String>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum SessionError {
+    #[error("session not found: {0}")]
+    NotFound(String),
+    #[error("session expired: {0}")]
+    Expired(String),
+    #[error("session invalid: {0}")]
+    Invalid(String),
+    #[error("provider unavailable: {0}")]
+    ProviderUnavailable(String),
+    #[error("database error: {0}")]
+    Database(#[from] DbError),
+}
+
+#[derive(Debug, Clone)]
+pub struct SessionFilters {
+    pub project_id: Option<String>,
+    pub agent_id: Option<String>,
+    pub provider: Option<String>,
+    pub status: Option<SessionStatus>,
+    pub limit: Option<u32>,
+    pub offset: Option<u32>,
+}
+
+// ---------- SessionManager Trait ----------
+
+pub trait SessionManager {
+    fn validate_session(&self, session_id: &str) -> Result<bool, SessionError>;
+    fn resume_session(&self, session_id: &str) -> Result<SessionContext, SessionError>;
+    fn create_session(&self, project_id: &str, agent_id: &str, provider: &str, provider_session_id: Option<&str>) -> Result<Session, SessionError>;
+    fn cleanup_expired_sessions(&self) -> Result<u32, SessionError>;
+}
+
 // ---------- Repositories ----------
 
 pub struct Project { pub id: String, pub name: String }
@@ -180,6 +266,178 @@ pub fn to_json_text(values: &[String]) -> String { json!(values).to_string() }
 pub fn from_json_text(s: &str) -> Result<Vec<String>, DbError> {
     let v: Vec<String> = serde_json::from_str(s).map_err(|e| DbError::InvalidInput(e.to_string()))?;
     Ok(v)
+}
+
+// ---------- Session CRUD Functions ----------
+
+pub fn insert_session(
+    conn: &Connection,
+    project_id: &str,
+    agent_id: &str,
+    provider: &str,
+    provider_session_id: Option<&str>,
+) -> Result<Session, DbError> {
+    let id = uuid();
+    let now = now_iso8601_utc();
+    conn.execute(
+        "INSERT INTO sessions(id, project_id, agent_id, provider, provider_session_id, created_at, last_activity, status, metadata, expires_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        params![id, project_id, agent_id, provider, provider_session_id, now, now, "active", None::<String>, None::<String>],
+    )?;
+    Ok(Session {
+        id,
+        project_id: project_id.to_string(),
+        agent_id: agent_id.to_string(),
+        provider: provider.to_string(),
+        provider_session_id: provider_session_id.map(|s| s.to_string()),
+        created_at: now.clone(),
+        last_activity: Some(now),
+        status: SessionStatus::Active,
+        metadata: None,
+        expires_at: None,
+    })
+}
+
+pub fn find_session(conn: &Connection, session_id: &str) -> Result<Option<Session>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, project_id, agent_id, provider, provider_session_id, created_at, last_activity, status, metadata, expires_at FROM sessions WHERE id = ?1"
+    )?;
+    let session = stmt.query_row(params![session_id], |row| {
+        let status_str: String = row.get(7)?;
+        let status = status_str.parse().unwrap_or(SessionStatus::Invalid);
+        Ok(Session {
+            id: row.get(0)?,
+            project_id: row.get(1)?,
+            agent_id: row.get(2)?,
+            provider: row.get(3)?,
+            provider_session_id: row.get(4)?,
+            created_at: row.get(5)?,
+            last_activity: row.get(6)?,
+            status,
+            metadata: row.get(8)?,
+            expires_at: row.get(9)?,
+        })
+    }).optional()?;
+    Ok(session)
+}
+
+pub fn list_sessions(conn: &Connection, filters: SessionFilters) -> Result<Vec<Session>, DbError> {
+    let mut query = "SELECT id, project_id, agent_id, provider, provider_session_id, created_at, last_activity, status, metadata, expires_at FROM sessions WHERE 1=1".to_string();
+    let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+    let mut param_count = 0;
+
+    if let Some(project_id) = &filters.project_id {
+        param_count += 1;
+        query.push_str(&format!(" AND project_id = ?{}", param_count));
+        params.push(Box::new(project_id.clone()));
+    }
+
+    if let Some(agent_id) = &filters.agent_id {
+        param_count += 1;
+        query.push_str(&format!(" AND agent_id = ?{}", param_count));
+        params.push(Box::new(agent_id.clone()));
+    }
+
+    if let Some(provider) = &filters.provider {
+        param_count += 1;
+        query.push_str(&format!(" AND provider = ?{}", param_count));
+        params.push(Box::new(provider.clone()));
+    }
+
+    if let Some(status) = &filters.status {
+        param_count += 1;
+        query.push_str(&format!(" AND status = ?{}", param_count));
+        params.push(Box::new(status.to_string()));
+    }
+
+    query.push_str(" ORDER BY created_at DESC");
+
+    if let Some(limit) = filters.limit {
+        param_count += 1;
+        query.push_str(&format!(" LIMIT ?{}", param_count));
+        params.push(Box::new(limit as i64));
+    }
+
+    if let Some(offset) = filters.offset {
+        param_count += 1;
+        query.push_str(&format!(" OFFSET ?{}", param_count));
+        params.push(Box::new(offset as i64));
+    }
+
+    let mut stmt = conn.prepare(&query)?;
+    let session_iter = stmt.query_map(rusqlite::params_from_iter(params), |row| {
+        let status_str: String = row.get(7)?;
+        let status = status_str.parse().unwrap_or(SessionStatus::Invalid);
+        Ok(Session {
+            id: row.get(0)?,
+            project_id: row.get(1)?,
+            agent_id: row.get(2)?,
+            provider: row.get(3)?,
+            provider_session_id: row.get(4)?,
+            created_at: row.get(5)?,
+            last_activity: row.get(6)?,
+            status,
+            metadata: row.get(8)?,
+            expires_at: row.get(9)?,
+        })
+    })?;
+
+    let mut sessions = Vec::new();
+    for session in session_iter {
+        sessions.push(session?);
+    }
+    Ok(sessions)
+}
+
+pub fn update_session(
+    conn: &Connection,
+    session_id: &str,
+    provider_session_id: Option<&str>,
+    last_activity: Option<&str>,
+    status: Option<SessionStatus>,
+) -> Result<(), DbError> {
+    let mut query = "UPDATE sessions SET".to_string();
+    let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+    let mut param_count = 0;
+    let mut updates = Vec::new();
+
+    if let Some(provider_session_id) = provider_session_id {
+        param_count += 1;
+        updates.push(format!("provider_session_id = ?{}", param_count));
+        params.push(Box::new(provider_session_id));
+    }
+
+    if let Some(last_activity) = last_activity {
+        param_count += 1;
+        updates.push(format!("last_activity = ?{}", param_count));
+        params.push(Box::new(last_activity));
+    }
+
+    if let Some(status) = status {
+        param_count += 1;
+        updates.push(format!("status = ?{}", param_count));
+        params.push(Box::new(status.to_string()));
+    }
+
+    if updates.is_empty() {
+        return Ok(());
+    }
+
+    query.push_str(" ");
+    query.push_str(&updates.join(", "));
+    param_count += 1;
+    query.push_str(&format!(" WHERE id = ?{}", param_count));
+    params.push(Box::new(session_id));
+
+    conn.execute(&query, rusqlite::params_from_iter(params))?;
+    Ok(())
+}
+
+pub fn delete_expired_sessions(conn: &Connection, before_timestamp: &str) -> Result<u32, DbError> {
+    let count = conn.execute(
+        "DELETE FROM sessions WHERE expires_at IS NOT NULL AND expires_at < ?1",
+        params![before_timestamp],
+    )?;
+    Ok(count as u32)
 }
 
 pub fn insert_agent(
@@ -308,5 +566,136 @@ mod tests {
         assert_eq!(status, "active");
         assert_eq!(metadata, r#"{"test": "data"}"#);
         assert_eq!(expires_at, now);
+    }
+
+    #[test]
+    fn session_status_display_and_parse() {
+        assert_eq!(SessionStatus::Active.to_string(), "active");
+        assert_eq!(SessionStatus::Expired.to_string(), "expired");
+        assert_eq!(SessionStatus::Invalid.to_string(), "invalid");
+        
+        assert_eq!("active".parse::<SessionStatus>().unwrap(), SessionStatus::Active);
+        assert_eq!("expired".parse::<SessionStatus>().unwrap(), SessionStatus::Expired);
+        assert_eq!("invalid".parse::<SessionStatus>().unwrap(), SessionStatus::Invalid);
+        
+        assert!("invalid_status".parse::<SessionStatus>().is_err());
+    }
+
+    #[test]
+    fn session_crud_operations() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("multi-agents.sqlite3");
+        let conn = open_or_create_db(db_path.to_string_lossy().as_ref()).unwrap();
+        
+        // Create project and agent
+        let p = insert_project(&conn, "demo").unwrap();
+        let a = insert_agent(&conn, &p.id, "backend", "backend", "gemini", "g-1.5", &vec!["Edit".into()], "sp").unwrap();
+        
+        // Test insert_session
+        let session = insert_session(&conn, &p.id, &a.id, "gemini", Some("provider_123")).unwrap();
+        assert_eq!(session.project_id, p.id);
+        assert_eq!(session.agent_id, a.id);
+        assert_eq!(session.provider, "gemini");
+        assert_eq!(session.provider_session_id, Some("provider_123".to_string()));
+        assert_eq!(session.status, SessionStatus::Active);
+        
+        // Test find_session
+        let found_session = find_session(&conn, &session.id).unwrap().unwrap();
+        assert_eq!(found_session.id, session.id);
+        assert_eq!(found_session.status, SessionStatus::Active);
+        
+        // Test list_sessions with filters
+        let filters = SessionFilters {
+            project_id: Some(p.id.clone()),
+            agent_id: None,
+            provider: None,
+            status: None,
+            limit: Some(10),
+            offset: None,
+        };
+        let sessions = list_sessions(&conn, filters).unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].id, session.id);
+        
+        // Test update_session
+        update_session(&conn, &session.id, None, Some("2025-01-17T20:00:00Z"), Some(SessionStatus::Expired)).unwrap();
+        let updated_session = find_session(&conn, &session.id).unwrap().unwrap();
+        assert_eq!(updated_session.last_activity, Some("2025-01-17T20:00:00Z".to_string()));
+        assert_eq!(updated_session.status, SessionStatus::Expired);
+        
+        // Set expires_at to make session eligible for deletion
+        conn.execute(
+            "UPDATE sessions SET expires_at = ?1 WHERE id = ?2",
+            params!["2025-01-17T21:00:00Z", session.id],
+        ).unwrap();
+        
+        // Test delete_expired_sessions
+        let deleted_count = delete_expired_sessions(&conn, "2025-01-18T00:00:00Z").unwrap();
+        assert_eq!(deleted_count, 1);
+        
+        // Verify session is deleted
+        let deleted_session = find_session(&conn, &session.id).unwrap();
+        assert!(deleted_session.is_none());
+    }
+
+    #[test]
+    fn session_filters_work_correctly() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("multi-agents.sqlite3");
+        let conn = open_or_create_db(db_path.to_string_lossy().as_ref()).unwrap();
+        
+        // Create project and agents
+        let p = insert_project(&conn, "demo").unwrap();
+        let a1 = insert_agent(&conn, &p.id, "backend", "backend", "gemini", "g-1.5", &vec!["Edit".into()], "sp").unwrap();
+        let a2 = insert_agent(&conn, &p.id, "frontend", "frontend", "claude", "claude-3", &vec!["Edit".into()], "sp").unwrap();
+        
+        // Create sessions
+        let s1 = insert_session(&conn, &p.id, &a1.id, "gemini", Some("provider_1")).unwrap();
+        let _s2 = insert_session(&conn, &p.id, &a2.id, "claude", Some("provider_2")).unwrap();
+        
+        // Test filter by provider
+        let filters = SessionFilters {
+            project_id: Some(p.id.clone()),
+            agent_id: None,
+            provider: Some("gemini".to_string()),
+            status: None,
+            limit: None,
+            offset: None,
+        };
+        let sessions = list_sessions(&conn, filters).unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].provider, "gemini");
+        
+        // Test filter by status
+        update_session(&conn, &s1.id, None, None, Some(SessionStatus::Expired)).unwrap();
+        let filters = SessionFilters {
+            project_id: Some(p.id.clone()),
+            agent_id: None,
+            provider: None,
+            status: Some(SessionStatus::Expired),
+            limit: None,
+            offset: None,
+        };
+        let sessions = list_sessions(&conn, filters).unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].status, SessionStatus::Expired);
+    }
+
+    #[test]
+    fn session_error_types() {
+        let not_found = SessionError::NotFound("test".to_string());
+        assert!(matches!(not_found, SessionError::NotFound(_)));
+        
+        let expired = SessionError::Expired("test".to_string());
+        assert!(matches!(expired, SessionError::Expired(_)));
+        
+        let invalid = SessionError::Invalid("test".to_string());
+        assert!(matches!(invalid, SessionError::Invalid(_)));
+        
+        let provider_unavailable = SessionError::ProviderUnavailable("test".to_string());
+        assert!(matches!(provider_unavailable, SessionError::ProviderUnavailable(_)));
+        
+        let db_error = SessionError::Database(DbError::InvalidInput("test".to_string()));
+        assert!(matches!(db_error, SessionError::Database(_)));
     }
 }
