@@ -2,7 +2,9 @@ use clap::{Parser, Subcommand, ValueEnum};
 use config_model::{
     parse_project_yaml, parse_providers_yaml, validate_project_config, validate_providers_config,
 };
-use db::{open_or_create_db, insert_project, insert_agent, find_project_id, IdOrName};
+use db::{open_or_create_db, insert_project, insert_agent, find_project_id, IdOrName, 
+         ClaudeSessionManager, CursorSessionManager, GeminiSessionManager, SessionManager, 
+         list_sessions, SessionFilters, SessionStatus};
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -128,6 +130,25 @@ enum SessionCmd {
         #[arg(long, value_name = "PATH")] providers_file: Option<String>,
         #[arg(long)] agent: String,
     },
+    /// List sessions for a project
+    List {
+        /// Optional: explicit path; else ENV/defaults resolution is used
+        #[arg(long, value_name = "PATH")] project_file: Option<String>,
+        #[arg(long)] project: String,
+        /// Filter by agent name
+        #[arg(long)] agent: Option<String>,
+        /// Filter by provider
+        #[arg(long)] provider: Option<String>,
+        /// Output format (text|json)
+        #[arg(long, value_enum, default_value_t = Format::Text)] format: Format,
+    },
+    /// Resume an existing session
+    Resume {
+        /// Conversation ID to resume
+        #[arg(long)] conversation_id: String,
+        /// Optional: override timeout in milliseconds (default 5000)
+        #[arg(long, value_name = "MILLIS")] timeout_ms: Option<u64>,
+    },
 }
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
@@ -156,6 +177,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Session { cmd } => match cmd {
             SessionCmd::Start { project_file, providers_file, agent } =>
                 run_session_start(project_file.as_deref(), providers_file.as_deref(), &agent),
+            SessionCmd::List { project_file, project, agent, provider, format } =>
+                run_session_list(project_file.as_deref(), &project, agent.as_deref(), provider.as_deref(), format),
+            SessionCmd::Resume { conversation_id, timeout_ms } =>
+                run_session_resume(&conversation_id, timeout_ms),
         },
     }
 }
@@ -723,6 +748,137 @@ fn run_session_start(project_path_opt: Option<&str>, providers_path_opt: Option<
         short_id()
     };
     println!("conversation_id={}", conv_id);
+    Ok(())
+}
+
+fn run_session_list(project_path_opt: Option<&str>, project_name: &str, agent_filter: Option<&str>, provider_filter: Option<&str>, format: Format) -> Result<(), Box<dyn std::error::Error>> {
+    let (project_path, _providers_path) = match resolve_config_paths(project_path_opt, None) {
+        Ok(p) => p,
+        Err(msg) => return exit_with(6, msg),
+    };
+    
+    let db_path = resolve_db_path();
+    let conn = open_or_create_db(&db_path)?;
+    
+    // Find project ID
+    let project_id = find_project_id(&conn, IdOrName::Name(project_name))?;
+    
+    // Build filters
+    let mut filters = SessionFilters {
+        project_id: Some(project_id),
+        agent_id: None,
+        provider: provider_filter.map(|s| s.to_string()),
+        status: Some(SessionStatus::Active),
+        limit: Some(50), // Default limit
+        offset: Some(0),
+    };
+    
+    // If agent filter provided, find agent ID
+    if let Some(agent_name) = agent_filter {
+        let proj_s = fs::read_to_string(&project_path)?;
+        let project = parse_project_yaml(&proj_s).map_err(|e| format!("project: {}", e))?;
+        let agent = project.agents.iter().find(|a| a.name == agent_name)
+            .ok_or_else(|| format!("unknown agent: {}", agent_name))?;
+        
+        // Find agent ID in database
+        let agent_id = conn.query_row(
+            "SELECT id FROM agents WHERE project_id = ?1 AND name = ?2",
+            params![project_id, agent_name],
+            |row| Ok(row.get::<_, String>(0)?)
+        )?;
+        filters.agent_id = Some(agent_id);
+    }
+    
+    // List sessions
+    let sessions = list_sessions(&conn, &filters)?;
+    
+    match format {
+        Format::Text => {
+            if sessions.is_empty() {
+                println!("No sessions found for project '{}'", project_name);
+                return Ok(());
+            }
+            
+            println!("Sessions for project '{}':", project_name);
+            println!("{:<36} {:<12} {:<12} {:<8} {:<20}", "ID", "Agent", "Provider", "Status", "Created");
+            println!("{}", "-".repeat(88));
+            
+            for session in sessions {
+                let created = session.created_at.split('T').next().unwrap_or(&session.created_at);
+                println!("{:<36} {:<12} {:<12} {:<8} {:<20}", 
+                    session.id, 
+                    session.agent_id, 
+                    session.provider, 
+                    session.status, 
+                    created
+                );
+            }
+        }
+        Format::Json => {
+            let json = serde_json::json!({
+                "project": project_name,
+                "sessions": sessions.iter().map(|s| serde_json::json!({
+                    "id": s.id,
+                    "agent_id": s.agent_id,
+                    "provider": s.provider,
+                    "status": s.status,
+                    "created_at": s.created_at,
+                    "last_activity": s.last_activity,
+                    "provider_session_id": s.provider_session_id
+                })).collect::<Vec<_>>()
+            });
+            println!("{}", serde_json::to_string_pretty(&json)?);
+        }
+    }
+    
+    Ok(())
+}
+
+fn run_session_resume(conversation_id: &str, timeout_ms: Option<u64>) -> Result<(), Box<dyn std::error::Error>> {
+    let db_path = resolve_db_path();
+    let conn = open_or_create_db(&db_path)?;
+    
+    // Find session
+    let session = match db::find_session(&conn, conversation_id)? {
+        Some(s) => s,
+        None => return exit_with(2, format!("Session not found: {}", conversation_id)),
+    };
+    
+    // Create appropriate SessionManager
+    let manager: Box<dyn SessionManager> = match session.provider.as_str() {
+        "claude" => Box::new(ClaudeSessionManager::new(conn)),
+        "cursor-agent" => Box::new(CursorSessionManager::new(conn)),
+        "gemini" => Box::new(GeminiSessionManager::new(conn)),
+        _ => return exit_with(2, format!("Unsupported provider: {}", session.provider)),
+    };
+    
+    // Resume session with timeout
+    let timeout = Duration::from_millis(timeout_ms.unwrap_or(5000));
+    let start = Instant::now();
+    
+    match manager.resume_session(conversation_id) {
+        Ok(context) => {
+            let elapsed = start.elapsed();
+            if elapsed > timeout {
+                return exit_with(5, "Session resume timeout".into());
+            }
+            
+            println!("Session resumed successfully");
+            println!("conversation_id={}", context.session.id);
+            if let Some(provider_id) = context.provider_session_id {
+                println!("provider_session_id={}", provider_id);
+            }
+            println!("is_resumable={}", context.is_resumable);
+        }
+        Err(e) => {
+            let elapsed = start.elapsed();
+            if elapsed > timeout {
+                return exit_with(5, "Session resume timeout".into());
+            }
+            return exit_with(2, format!("Failed to resume session: {}", e));
+        }
+    }
+    
     Ok(())
 }
 
