@@ -747,7 +747,46 @@ fn run_session_start(project_path_opt: Option<&str>, providers_path_opt: Option<
     } else {
         short_id()
     };
-    println!("conversation_id={}", conv_id);
+    // Save session to database
+    let db_path = default_db_path();
+    let conn = open_or_create_db(&db_path)?;
+    
+    // Find project and agent IDs
+    let project_id = find_project_id(&conn, IdOrName::Name(&project.name))?
+        .ok_or_else(|| format!("Project not found: {}", project.name))?;
+    
+    let agent_id = conn.query_row(
+        "SELECT id FROM agents WHERE project_id = ?1 AND name = ?2",
+        &[&project_id, &agent_name.to_string()],
+        |row| Ok(row.get::<_, String>(0)?)
+    )?;
+    
+    // Create appropriate SessionManager and session
+    let manager: Box<dyn SessionManager> = match provider_key.as_str() {
+        "claude" => Box::new(ClaudeSessionManager::new(conn)),
+        "cursor-agent" => Box::new(CursorSessionManager::new(conn)),
+        "gemini" => Box::new(GeminiSessionManager::new(conn)),
+        _ => return exit_with(2, format!("Unsupported provider: {}", provider_key)),
+    };
+    
+    // Create session with provider_session_id if available
+    let provider_session_id = if provider_key.starts_with("cursor") {
+        Some(conv_id.as_str())
+    } else if provider_key == "claude" || provider_key == "gemini" {
+        Some(conv_id.as_str())
+    } else {
+        None
+    };
+    
+    match manager.create_session(&project_id, &agent_id, provider_key, provider_session_id) {
+        Ok(session) => {
+            println!("conversation_id={}", session.id);
+        }
+        Err(e) => {
+            return exit_with(7, format!("Failed to create session: {}", e));
+        }
+    }
+    
     Ok(())
 }
 
@@ -757,15 +796,16 @@ fn run_session_list(project_path_opt: Option<&str>, project_name: &str, agent_fi
         Err(msg) => return exit_with(6, msg),
     };
     
-    let db_path = resolve_db_path();
+    let db_path = default_db_path();
     let conn = open_or_create_db(&db_path)?;
     
     // Find project ID
-    let project_id = find_project_id(&conn, IdOrName::Name(project_name))?;
+    let project_id = find_project_id(&conn, IdOrName::Name(project_name))?
+        .ok_or_else(|| format!("Project not found: {}", project_name))?;
     
     // Build filters
     let mut filters = SessionFilters {
-        project_id: Some(project_id),
+        project_id: Some(project_id.clone()),
         agent_id: None,
         provider: provider_filter.map(|s| s.to_string()),
         status: Some(SessionStatus::Active),
@@ -777,20 +817,20 @@ fn run_session_list(project_path_opt: Option<&str>, project_name: &str, agent_fi
     if let Some(agent_name) = agent_filter {
         let proj_s = fs::read_to_string(&project_path)?;
         let project = parse_project_yaml(&proj_s).map_err(|e| format!("project: {}", e))?;
-        let agent = project.agents.iter().find(|a| a.name == agent_name)
+        let _agent = project.agents.iter().find(|a| a.name == agent_name)
             .ok_or_else(|| format!("unknown agent: {}", agent_name))?;
         
         // Find agent ID in database
         let agent_id = conn.query_row(
             "SELECT id FROM agents WHERE project_id = ?1 AND name = ?2",
-            params![project_id, agent_name],
+            &[&project_id, &agent_name.to_string()],
             |row| Ok(row.get::<_, String>(0)?)
         )?;
         filters.agent_id = Some(agent_id);
     }
     
     // List sessions
-    let sessions = list_sessions(&conn, &filters)?;
+    let sessions = list_sessions(&conn, filters)?;
     
     match format {
         Format::Text => {
@@ -821,7 +861,7 @@ fn run_session_list(project_path_opt: Option<&str>, project_name: &str, agent_fi
                     "id": s.id,
                     "agent_id": s.agent_id,
                     "provider": s.provider,
-                    "status": s.status,
+                    "status": s.status.to_string(),
                     "created_at": s.created_at,
                     "last_activity": s.last_activity,
                     "provider_session_id": s.provider_session_id
@@ -835,7 +875,7 @@ fn run_session_list(project_path_opt: Option<&str>, project_name: &str, agent_fi
 }
 
 fn run_session_resume(conversation_id: &str, timeout_ms: Option<u64>) -> Result<(), Box<dyn std::error::Error>> {
-    let db_path = resolve_db_path();
+    let db_path = default_db_path();
     let conn = open_or_create_db(&db_path)?;
     
     // Find session
