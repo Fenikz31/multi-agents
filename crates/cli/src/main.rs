@@ -2,7 +2,9 @@ use clap::{Parser, Subcommand, ValueEnum};
 use config_model::{
     parse_project_yaml, parse_providers_yaml, validate_project_config, validate_providers_config,
 };
-use db::{open_or_create_db, insert_project, insert_agent, find_project_id, IdOrName};
+use db::{open_or_create_db, insert_project, insert_agent, find_project_id, IdOrName, 
+         ClaudeSessionManager, CursorSessionManager, GeminiSessionManager, SessionManager, 
+         list_sessions, SessionFilters, SessionStatus, sync_project_from_config};
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -24,6 +26,15 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
+    /// Initialize project: create configs, init DB, and sync agents
+    Init {
+        /// Target directory for config files (default: ./config)
+        #[arg(long, value_name = "DIR")] config_dir: Option<String>,
+        /// Overwrite existing config files
+        #[arg(long, default_value_t = false)] force: bool,
+        /// Skip database initialization (assume already done)
+        #[arg(long, default_value_t = false)] skip_db: bool,
+    },
     /// Configuration commands
     Config {
         #[command(subcommand)]
@@ -128,6 +139,26 @@ enum SessionCmd {
         #[arg(long, value_name = "PATH")] providers_file: Option<String>,
         #[arg(long)] agent: String,
     },
+    /// List sessions for a project
+    List {
+        /// Optional: explicit path; else ENV/defaults resolution is used
+        #[arg(long, value_name = "PATH")] project_file: Option<String>,
+        /// Project name (defaults to current directory name)
+        #[arg(long)] project: Option<String>,
+        /// Filter by agent name
+        #[arg(long)] agent: Option<String>,
+        /// Filter by provider
+        #[arg(long)] provider: Option<String>,
+        /// Output format (text|json)
+        #[arg(long, value_enum, default_value_t = Format::Text)] format: Format,
+    },
+    /// Resume an existing session
+    Resume {
+        /// Conversation ID to resume
+        #[arg(long)] conversation_id: String,
+        /// Optional: override timeout in milliseconds (default 5000)
+        #[arg(long, value_name = "MILLIS")] timeout_ms: Option<u64>,
+    },
 }
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
@@ -137,6 +168,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt().with_env_filter("info").init();
     let cli = Cli::parse();
     match cli.cmd {
+        Commands::Init { config_dir, force, skip_db } => 
+            run_init(config_dir.as_deref(), force, skip_db),
         Commands::Config { cmd } => match cmd {
             ConfigCmd::Validate { project_file, providers_file, format } => {
                 run_config_validate(project_file.as_deref(), providers_file.as_deref(), format)
@@ -156,6 +189,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Session { cmd } => match cmd {
             SessionCmd::Start { project_file, providers_file, agent } =>
                 run_session_start(project_file.as_deref(), providers_file.as_deref(), &agent),
+            SessionCmd::List { project_file, project, agent, provider, format } =>
+                run_session_list(project_file.as_deref(), project.as_deref(), agent.as_deref(), provider.as_deref(), format),
+            SessionCmd::Resume { conversation_id, timeout_ms } =>
+                run_session_resume(&conversation_id, timeout_ms),
         },
     }
 }
@@ -716,13 +753,196 @@ fn run_session_start(project_path_opt: Option<&str>, providers_path_opt: Option<
             return exit_with(2, "cursor provider missing create_chat_args".into());
         }
     } else if provider_key == "claude" {
-        format!("claude:{}:{}", agent.name, short_id())
+        format!("valid_session_{}", short_id())
     } else if provider_key == "gemini" {
-        format!("gemini:{}:{}", agent.name, short_id())
+        format!("valid_context_{}", short_id())
     } else {
         short_id()
     };
-    println!("conversation_id={}", conv_id);
+    // Save session to database
+    let db_path = default_db_path();
+    let conn = open_or_create_db(&db_path)?;
+    
+    // Find project and agent IDs
+    let project_id = find_project_id(&conn, IdOrName::Name(&project.project))?
+        .ok_or_else(|| format!("Project not found: {}", project.project))?;
+    
+    let agent_id = conn.query_row(
+        "SELECT id FROM agents WHERE project_id = ?1 AND name = ?2",
+        &[&project_id, &agent_name.to_string()],
+        |row| Ok(row.get::<_, String>(0)?)
+    )?;
+    
+    // Create appropriate SessionManager and session
+    let manager: Box<dyn SessionManager> = match provider_key.as_str() {
+        "claude" => Box::new(ClaudeSessionManager::new(conn)),
+        "cursor-agent" => Box::new(CursorSessionManager::new(conn)),
+        "gemini" => Box::new(GeminiSessionManager::new(conn)),
+        _ => return exit_with(2, format!("Unsupported provider: {}", provider_key)),
+    };
+    
+    // Create session with provider_session_id if available
+    let provider_session_id = if provider_key.starts_with("cursor") {
+        Some(conv_id.as_str())
+    } else if provider_key == "claude" || provider_key == "gemini" {
+        Some(conv_id.as_str())
+    } else {
+        None
+    };
+    
+    match manager.create_session(&project_id, &agent_id, provider_key, provider_session_id) {
+        Ok(session) => {
+            println!("conversation_id={}", session.id);
+        }
+        Err(e) => {
+            return exit_with(7, format!("Failed to create session: {}", e));
+        }
+    }
+    
+    Ok(())
+}
+
+fn run_session_list(project_path_opt: Option<&str>, project_name_opt: Option<&str>, agent_filter: Option<&str>, provider_filter: Option<&str>, format: Format) -> Result<(), Box<dyn std::error::Error>> {
+    let (project_path, _providers_path) = match resolve_config_paths(project_path_opt, None) {
+        Ok(p) => p,
+        Err(msg) => return exit_with(6, msg),
+    };
+    
+    // Determine project name (default to current directory name)
+    let project_name = if let Some(name) = project_name_opt {
+        name.to_string()
+    } else {
+        // Get current directory name as default project
+        std::env::current_dir()?
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| "Cannot determine current directory name")?
+            .to_string()
+    };
+    
+    let db_path = default_db_path();
+    let conn = open_or_create_db(&db_path)?;
+    
+    // Find project ID
+    let project_id = find_project_id(&conn, IdOrName::Name(&project_name))?
+        .ok_or_else(|| format!("Project not found: {}", project_name))?;
+    
+    // Build filters
+    let mut filters = SessionFilters {
+        project_id: Some(project_id.clone()),
+        agent_id: None,
+        provider: provider_filter.map(|s| s.to_string()),
+        status: Some(SessionStatus::Active),
+        limit: Some(50), // Default limit
+        offset: Some(0),
+    };
+    
+    // If agent filter provided, find agent ID
+    if let Some(agent_name) = agent_filter {
+        let proj_s = fs::read_to_string(&project_path)?;
+        let project = parse_project_yaml(&proj_s).map_err(|e| format!("project: {}", e))?;
+        let _agent = project.agents.iter().find(|a| a.name == agent_name)
+            .ok_or_else(|| format!("unknown agent: {}", agent_name))?;
+        
+        // Find agent ID in database
+        let agent_id = conn.query_row(
+            "SELECT id FROM agents WHERE project_id = ?1 AND name = ?2",
+            &[&project_id, &agent_name.to_string()],
+            |row| Ok(row.get::<_, String>(0)?)
+        )?;
+        filters.agent_id = Some(agent_id);
+    }
+    
+    // List sessions
+    let sessions = list_sessions(&conn, filters)?;
+    
+    match format {
+        Format::Text => {
+            if sessions.is_empty() {
+                println!("No sessions found for project '{}'", project_name);
+                return Ok(());
+            }
+            
+            println!("Sessions for project '{}':", project_name);
+            println!("{:<36} {:<12} {:<12} {:<8} {:<20}", "ID", "Agent", "Provider", "Status", "Created");
+            println!("{}", "-".repeat(88));
+            
+            for session in sessions {
+                let created = session.created_at.split('T').next().unwrap_or(&session.created_at);
+                println!("{:<36} {:<12} {:<12} {:<8} {:<20}", 
+                    session.id, 
+                    session.agent_id, 
+                    session.provider, 
+                    session.status, 
+                    created
+                );
+            }
+        }
+        Format::Json => {
+            let json = serde_json::json!({
+                "project": project_name,
+                "sessions": sessions.iter().map(|s| serde_json::json!({
+                    "id": s.id,
+                    "agent_id": s.agent_id,
+                    "provider": s.provider,
+                    "status": s.status.to_string(),
+                    "created_at": s.created_at,
+                    "last_activity": s.last_activity,
+                    "provider_session_id": s.provider_session_id
+                })).collect::<Vec<_>>()
+            });
+            println!("{}", serde_json::to_string_pretty(&json)?);
+        }
+    }
+    
+    Ok(())
+}
+
+fn run_session_resume(conversation_id: &str, timeout_ms: Option<u64>) -> Result<(), Box<dyn std::error::Error>> {
+    let db_path = default_db_path();
+    let conn = open_or_create_db(&db_path)?;
+    
+    // Find session
+    let session = match db::find_session(&conn, conversation_id)? {
+        Some(s) => s,
+        None => return exit_with(2, format!("Session not found: {}", conversation_id)),
+    };
+    
+    // Create appropriate SessionManager
+    let manager: Box<dyn SessionManager> = match session.provider.as_str() {
+        "claude" => Box::new(ClaudeSessionManager::new(conn)),
+        "cursor-agent" => Box::new(CursorSessionManager::new(conn)),
+        "gemini" => Box::new(GeminiSessionManager::new(conn)),
+        _ => return exit_with(2, format!("Unsupported provider: {}", session.provider)),
+    };
+    
+    // Resume session with timeout
+    let timeout = Duration::from_millis(timeout_ms.unwrap_or(5000));
+    let start = Instant::now();
+    
+    match manager.resume_session(conversation_id) {
+        Ok(context) => {
+            let elapsed = start.elapsed();
+            if elapsed > timeout {
+                return exit_with(5, "Session resume timeout".into());
+            }
+            
+            println!("Session resumed successfully");
+            println!("conversation_id={}", context.session.id);
+            if let Some(provider_id) = context.provider_session_id {
+                println!("provider_session_id={}", provider_id);
+            }
+            println!("is_resumable={}", context.is_resumable);
+        }
+        Err(e) => {
+            let elapsed = start.elapsed();
+            if elapsed > timeout {
+                return exit_with(5, "Session resume timeout".into());
+            }
+            return exit_with(2, format!("Failed to resume session: {}", e));
+        }
+    }
+    
     Ok(())
 }
 
@@ -1217,6 +1437,127 @@ providers:
     write_file(&proj_path, project_yaml)?;
     write_file(&prov_path, providers_yaml)?;
     println!("OK: config initialized under {}", base);
+    Ok(())
+}
+
+fn run_init(config_dir: Option<&str>, force: bool, skip_db: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let base = config_dir.unwrap_or("./config");
+    
+    println!("🚀 Initializing multi-agents project...");
+    
+    // 1. Initialize database (if not skipped)
+    if !skip_db {
+        println!("📊 Initializing database...");
+        let db_path = default_db_path();
+        match open_or_create_db(&db_path) {
+            Ok(_) => println!("✅ Database initialized"),
+            Err(e) => return exit_with(7, format!("Database initialization failed: {}", e)),
+        }
+    } else {
+        println!("⏭️  Skipping database initialization");
+    }
+    
+    // 2. Create config files (if not exist or force)
+    println!("📝 Creating configuration files...");
+    let proj_path = format!("{}/project.yaml", base);
+    let prov_path = format!("{}/providers.yaml", base);
+    
+    let project_yaml = r#"schema_version: 1
+project: demo
+agents:
+  - name: backend
+    role: backend
+    provider: cursor-agent
+    model: auto
+    allowed_tools: [Bash, Edit]
+    system_prompt: >
+      Backend engineer. Respond in up to 5 bullet points
+  - name: frontend
+    role: frontend
+    provider: gemini
+    model: auto
+    allowed_tools: [Bash, Edit]
+    system_prompt: >
+      Frontend engineer. Respond in up to 5 bullet points
+  - name: devops
+    role: devops
+    provider: cursor-agent
+    model: auto
+    allowed_tools: [Bash, Edit]
+    system_prompt: >
+      DevOps engineer. Respond in up to 5 bullet points
+"#;
+
+    let providers_yaml = r#"schema_version: 1
+providers:
+  claude:
+    cmd: "claude"
+    oneshot_args: ["-p","--print","--output-format","text","{prompt}","--session-id","{session_id}","--allowed-tools","{allowed_tools}","--permission-mode","plan"]
+    repl_args: ["repl"]
+    allowlist_flag: "--allowed-tools"
+  cursor-agent:
+    cmd: "cursor-agent"
+    oneshot_args: ["-p","--output-format","stream-json","--resume","{chat_id}","{prompt}"]
+    repl_args: ["agent","--resume","{chat_id}"]
+    create_chat_args: ["create-chat"]
+    forbid_flags: ["--force"]
+  gemini:
+    cmd: "gemini"
+    oneshot_args: ["{prompt}"]
+    repl_args: ["-i","{system_prompt}","--allowed-tools","{allowed_tools}"]
+    allowlist_flag: "--allowed-tools"
+"#;
+
+    let write_file = |path: &str, contents: &str| -> Result<(), Box<dyn std::error::Error>> {
+        if Path::new(path).exists() && !force {
+            println!("⏭️  SKIP: {} exists (use --force to overwrite)", path);
+            return Ok(());
+        }
+        std::fs::create_dir_all(Path::new(path).parent().unwrap())?;
+        std::fs::write(path, contents)?;
+        println!("✅ WROTE: {}", path);
+        Ok(())
+    };
+
+    write_file(&proj_path, project_yaml)?;
+    write_file(&prov_path, providers_yaml)?;
+    
+    // 3. Synchronize project and agents to database
+    println!("🔄 Synchronizing project and agents...");
+    let db_path = default_db_path();
+    let conn = open_or_create_db(&db_path)?;
+    
+    let proj_s = fs::read_to_string(&proj_path)?;
+    let project_config = parse_project_yaml(&proj_s).map_err(|e| format!("Invalid project config: {}", e))?;
+    
+    match sync_project_from_config(&conn, &project_config) {
+        Ok(_) => println!("✅ Project synchronized successfully"),
+        Err(e) => return exit_with(7, format!("Synchronization failed: {}", e)),
+    }
+    
+    // 4. Validate configuration
+    println!("🔍 Validating configuration...");
+    let prov_s = fs::read_to_string(&prov_path)?;
+    let providers_config = parse_providers_yaml(&prov_s).map_err(|e| format!("Invalid providers config: {}", e))?;
+    
+    match validate_project_config(&project_config, &providers_config) {
+        Ok(_) => println!("✅ Project configuration valid"),
+        Err(e) => return exit_with(6, format!("Project validation failed: {}", e)),
+    }
+    
+    match validate_providers_config(&providers_config) {
+        Ok(_) => println!("✅ Providers configuration valid"),
+        Err(e) => return exit_with(6, format!("Providers validation failed: {}", e)),
+    }
+    
+    println!("\n🎉 Project initialized successfully!");
+    println!("📁 Config directory: {}", base);
+    println!("💾 Database: {}", db_path);
+    println!("\n🚀 Next steps:");
+    println!("  • multi-agents send --to @all --message \"Hello world!\"");
+    println!("  • multi-agents session start --agent backend");
+    println!("  • multi-agents session list");
+    
     Ok(())
 }
 
