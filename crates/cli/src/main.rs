@@ -261,7 +261,7 @@ fn run_send(project_path: &str, providers_path: &str, to: &str, message: &str, s
         let session_id_owned = session_id_opt.map(|s| s.to_string());
         let chat_id_owned = chat_id_opt.map(|s| s.to_string());
         handles.push(thread::spawn(move || {
-            match prov_cfg {
+    match prov_cfg {
                 Some(tpl) => run_oneshot_provider(
                     &project_name, &agent_role, &provider_key, &tpl,
                     &message_owned, &agent_system, &agent_allowed,
