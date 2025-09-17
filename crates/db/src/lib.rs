@@ -466,6 +466,135 @@ impl SessionManager for CursorSessionManager {
     }
 }
 
+// ---------- GeminiSessionManager Implementation ----------
+
+pub struct GeminiSessionManager {
+    conn: Connection,
+}
+
+impl GeminiSessionManager {
+    pub fn new(conn: Connection) -> Self {
+        Self { conn }
+    }
+    
+    fn validate_gemini_context(&self, context_id: &str) -> Result<bool, SessionError> {
+        // Simulate Gemini context validation
+        // In real implementation, this would check if the context is still available
+        if context_id.is_empty() {
+            return Ok(false);
+        }
+        
+        // Mock validation logic - in real implementation, this would:
+        // 1. Check if Gemini context is still available
+        // 2. Verify context hasn't expired
+        // 3. Return true if valid, false if expired/invalid
+        
+        // For now, simulate that context IDs starting with "valid_" are valid
+        Ok(context_id.starts_with("valid_"))
+    }
+    
+    fn create_gemini_context(&self) -> Result<String, SessionError> {
+        // Simulate Gemini context creation
+        // In real implementation, this would create a new Gemini context
+        // and return the generated context_id
+        
+        // Mock implementation: generate a new context ID using timestamp
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        let random = (timestamp % 10000) as u32; // Use last 4 digits for uniqueness
+        Ok(format!("valid_context_{}_{}", timestamp, random))
+    }
+}
+
+impl SessionManager for GeminiSessionManager {
+    fn validate_session(&self, session_id: &str) -> Result<bool, SessionError> {
+        // First check if session exists in database
+        let session = find_session(&self.conn, session_id)?;
+        let session = session.ok_or_else(|| SessionError::NotFound(session_id.to_string()))?;
+        
+        // Check if session is already marked as expired/invalid
+        if session.status != SessionStatus::Active {
+            return Ok(false);
+        }
+        
+        // If we have a provider_session_id (context_id), validate Gemini context
+        if let Some(provider_session_id) = &session.provider_session_id {
+            let is_valid = self.validate_gemini_context(provider_session_id)?;
+            
+            // Update session status based on validation result
+            let new_status = if is_valid {
+                SessionStatus::Active
+            } else {
+                SessionStatus::Expired
+            };
+            
+            update_session(&self.conn, session_id, None, None, Some(new_status))?;
+            
+            Ok(is_valid)
+        } else {
+            // No provider_session_id means session is not resumable
+            Ok(false)
+        }
+    }
+    
+    fn resume_session(&self, session_id: &str) -> Result<SessionContext, SessionError> {
+        let session = find_session(&self.conn, session_id)?
+            .ok_or_else(|| SessionError::NotFound(session_id.to_string()))?;
+        
+        // Validate session before resuming
+        if !self.validate_session(session_id)? {
+            return Err(SessionError::Expired(session_id.to_string()));
+        }
+        
+        let is_resumable = session.provider_session_id.is_some();
+        let provider_session_id = session.provider_session_id.clone();
+        
+        Ok(SessionContext {
+            session,
+            is_resumable,
+            provider_session_id,
+        })
+    }
+    
+    fn create_session(&self, project_id: &str, agent_id: &str, provider: &str, provider_session_id: Option<&str>) -> Result<Session, SessionError> {
+        // Validate that this is a Gemini session
+        if provider != "gemini" {
+            return Err(SessionError::Invalid(format!("Expected gemini provider, got {}", provider)));
+        }
+        
+        // If no provider_session_id provided, create a new Gemini context
+        let context_id = if let Some(provider_session_id) = provider_session_id {
+            // Validate existing context_id
+            if !self.validate_gemini_context(provider_session_id)? {
+                return Err(SessionError::Invalid(format!("Invalid Gemini context: {}", provider_session_id)));
+            }
+            provider_session_id.to_string()
+        } else {
+            // Create new context
+            self.create_gemini_context()?
+        };
+        
+        // Create session in database
+        let session = insert_session(&self.conn, project_id, agent_id, provider, Some(&context_id))?;
+        
+        Ok(session)
+    }
+    
+    fn cleanup_expired_sessions(&self) -> Result<u32, SessionError> {
+        // Clean up sessions that are marked as expired or invalid
+        let now = now_iso8601_utc();
+        let expired_count = self.conn.execute(
+            "DELETE FROM sessions WHERE status IN ('expired', 'invalid') AND last_activity < ?1",
+            params![now],
+        )?;
+        
+        Ok(expired_count as u32)
+    }
+}
+
 // ---------- Repositories ----------
 
 pub struct Project { pub id: String, pub name: String }
@@ -1225,5 +1354,157 @@ mod tests {
         assert!(chat_id2.starts_with("valid_chat_"));
         // Note: In fast tests, IDs might be identical due to same timestamp
         // In real implementation, this would be handled by the actual Cursor CLI
+    }
+
+    #[test]
+    fn gemini_session_manager_validation() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("multi-agents.sqlite3");
+        let conn = open_or_create_db(db_path.to_string_lossy().as_ref()).unwrap();
+        
+        // Create project and agent
+        let p = insert_project(&conn, "demo").unwrap();
+        let a = insert_agent(&conn, &p.id, "devops", "devops", "gemini", "gemini-1.5-pro", &vec!["Bash".into()], "sp").unwrap();
+        
+        // Create sessions
+        let session = insert_session(&conn, &p.id, &a.id, "gemini", Some("valid_context_123")).unwrap();
+        let invalid_session = insert_session(&conn, &p.id, &a.id, "gemini", Some("invalid_context_456")).unwrap();
+        
+        let manager = GeminiSessionManager::new(conn);
+        
+        // Test validation with valid context
+        let is_valid = manager.validate_session(&session.id).unwrap();
+        assert!(is_valid, "Valid context should be valid");
+        
+        // Test validation with invalid context
+        let is_valid = manager.validate_session(&invalid_session.id).unwrap();
+        assert!(!is_valid, "Invalid context should not be valid");
+        
+        // Test validation with non-existent session
+        let result = manager.validate_session("non_existent_session");
+        assert!(matches!(result, Err(SessionError::NotFound(_))));
+    }
+
+    #[test]
+    fn gemini_session_manager_resume() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("multi-agents.sqlite3");
+        let conn = open_or_create_db(db_path.to_string_lossy().as_ref()).unwrap();
+        
+        // Create project and agent
+        let p = insert_project(&conn, "demo").unwrap();
+        let a = insert_agent(&conn, &p.id, "devops", "devops", "gemini", "gemini-1.5-pro", &vec!["Bash".into()], "sp").unwrap();
+        
+        // Create sessions
+        let session = insert_session(&conn, &p.id, &a.id, "gemini", Some("valid_context_123")).unwrap();
+        let invalid_session = insert_session(&conn, &p.id, &a.id, "gemini", Some("invalid_context_456")).unwrap();
+        
+        let manager = GeminiSessionManager::new(conn);
+        
+        // Test successful resume
+        let context = manager.resume_session(&session.id).unwrap();
+        assert_eq!(context.session.id, session.id);
+        assert!(context.is_resumable);
+        assert_eq!(context.provider_session_id, Some("valid_context_123".to_string()));
+        
+        // Test resume with invalid context
+        let result = manager.resume_session(&invalid_session.id);
+        assert!(matches!(result, Err(SessionError::Expired(_))));
+        
+        // Test resume with non-existent session
+        let result = manager.resume_session("non_existent_session");
+        assert!(matches!(result, Err(SessionError::NotFound(_))));
+    }
+
+    #[test]
+    fn gemini_session_manager_create() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("multi-agents.sqlite3");
+        let conn = open_or_create_db(db_path.to_string_lossy().as_ref()).unwrap();
+        
+        // Create project and agent
+        let p = insert_project(&conn, "demo").unwrap();
+        let a = insert_agent(&conn, &p.id, "devops", "devops", "gemini", "gemini-1.5-pro", &vec!["Bash".into()], "sp").unwrap();
+        
+        let manager = GeminiSessionManager::new(conn);
+        
+        // Test successful creation with valid context
+        let session = manager.create_session(&p.id, &a.id, "gemini", Some("valid_context_123")).unwrap();
+        assert_eq!(session.provider, "gemini");
+        assert_eq!(session.provider_session_id, Some("valid_context_123".to_string()));
+        assert_eq!(session.status, SessionStatus::Active);
+        
+        // Test creation with invalid context
+        let result = manager.create_session(&p.id, &a.id, "gemini", Some("invalid_context_456"));
+        assert!(matches!(result, Err(SessionError::Invalid(_))));
+        
+        // Test creation with wrong provider
+        let result = manager.create_session(&p.id, &a.id, "claude", Some("valid_context_123"));
+        assert!(matches!(result, Err(SessionError::Invalid(_))));
+        
+        // Test creation without context ID (should create new context)
+        let session = manager.create_session(&p.id, &a.id, "gemini", None).unwrap();
+        assert_eq!(session.provider, "gemini");
+        assert!(session.provider_session_id.is_some());
+        assert!(session.provider_session_id.unwrap().starts_with("valid_context_"));
+        assert_eq!(session.status, SessionStatus::Active);
+    }
+
+    #[test]
+    fn gemini_session_manager_cleanup() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("multi-agents.sqlite3");
+        let conn = open_or_create_db(db_path.to_string_lossy().as_ref()).unwrap();
+        
+        // Create project and agent
+        let p = insert_project(&conn, "demo").unwrap();
+        let a = insert_agent(&conn, &p.id, "devops", "devops", "gemini", "gemini-1.5-pro", &vec!["Bash".into()], "sp").unwrap();
+        
+        // Create sessions with different statuses
+        let _active_session = insert_session(&conn, &p.id, &a.id, "gemini", Some("valid_context_123")).unwrap();
+        let expired_session = insert_session(&conn, &p.id, &a.id, "gemini", Some("invalid_context_456")).unwrap();
+        
+        // Mark one session as expired
+        update_session(&conn, &expired_session.id, None, None, Some(SessionStatus::Expired)).unwrap();
+        
+        let manager = GeminiSessionManager::new(conn);
+        
+        // Test cleanup
+        let cleaned_count = manager.cleanup_expired_sessions().unwrap();
+        assert_eq!(cleaned_count, 1, "Should clean up 1 expired session");
+        
+        // Note: We can't verify the cleanup results here because conn was moved to manager
+        // In a real implementation, we would need to add a method to check session existence
+        // or restructure the test to avoid moving the connection
+    }
+
+    #[test]
+    fn gemini_session_manager_validation_logic() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("multi-agents.sqlite3");
+        let conn = open_or_create_db(db_path.to_string_lossy().as_ref()).unwrap();
+        let manager = GeminiSessionManager::new(conn);
+        
+        // Test validation logic directly
+        assert!(manager.validate_gemini_context("valid_test_context").unwrap());
+        assert!(!manager.validate_gemini_context("invalid_test_context").unwrap());
+        assert!(!manager.validate_gemini_context("").unwrap());
+    }
+
+    #[test]
+    fn gemini_session_manager_create_context() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("multi-agents.sqlite3");
+        let conn = open_or_create_db(db_path.to_string_lossy().as_ref()).unwrap();
+        let manager = GeminiSessionManager::new(conn);
+        
+        // Test context creation
+        let context_id1 = manager.create_gemini_context().unwrap();
+        let context_id2 = manager.create_gemini_context().unwrap();
+        
+        assert!(context_id1.starts_with("valid_context_"));
+        assert!(context_id2.starts_with("valid_context_"));
+        // Note: In fast tests, IDs might be identical due to same timestamp
+        // In real implementation, this would be handled by the actual Gemini API
     }
 }
