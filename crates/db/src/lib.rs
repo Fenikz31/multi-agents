@@ -39,6 +39,11 @@ fn apply_pending_migrations(conn: &Connection) -> Result<(), DbError> {
         apply_v1(conn)?;
         record_migration(conn, 1)?;
     }
+    // v2: extend sessions table for M3
+    if !migration_applied(conn, 2)? {
+        apply_v2(conn)?;
+        record_migration(conn, 2)?;
+    }
     Ok(())
 }
 
@@ -110,6 +115,24 @@ fn apply_v1(conn: &Connection) -> Result<(), DbError> {
             created_at TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_tasks_project_status_created ON tasks(project_id, status, created_at);
+        "#,
+    )?;
+    Ok(())
+}
+
+fn apply_v2(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(
+        r#"
+        -- Add new columns to sessions table for M3 session resume functionality
+        ALTER TABLE sessions ADD COLUMN last_activity TEXT;
+        ALTER TABLE sessions ADD COLUMN status TEXT DEFAULT 'active';
+        ALTER TABLE sessions ADD COLUMN metadata TEXT;
+        ALTER TABLE sessions ADD COLUMN expires_at TEXT;
+        
+        -- Create indexes for performance
+        CREATE INDEX IF NOT EXISTS idx_sessions_project_status_created ON sessions(project_id, status, created_at);
+        CREATE INDEX IF NOT EXISTS idx_sessions_provider_session_id ON sessions(provider_session_id);
+        CREATE INDEX IF NOT EXISTS idx_sessions_last_activity ON sessions(last_activity);
         "#,
     )?;
     Ok(())
@@ -224,5 +247,66 @@ mod tests {
         // Uniqueness on project_id+name
         let dup = insert_agent(&conn, &p.id, "backend", "backend", "gemini", "g-1.5", &vec!["Edit".into()], "sp");
         assert!(dup.is_err());
+    }
+
+    #[test]
+    fn migration_v2_extends_sessions_table() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("multi-agents.sqlite3");
+        let conn = open_or_create_db(db_path.to_string_lossy().as_ref()).unwrap();
+        
+        // Check that migration v2 was applied
+        let v2_applied = migration_applied(&conn, 2).unwrap();
+        assert!(v2_applied, "migration v2 should be applied");
+        
+        // Check that new columns exist
+        let mut stmt = conn.prepare("PRAGMA table_info(sessions)").unwrap();
+        let columns: Vec<(i64, String, String, i64, Option<String>, i64)> = stmt.query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?))
+        }).unwrap().collect::<Result<Vec<_>, _>>().unwrap();
+        
+        let column_names: Vec<String> = columns.iter().map(|(_, name, _, _, _, _)| name.clone()).collect();
+        assert!(column_names.contains(&"last_activity".to_string()), "last_activity column should exist");
+        assert!(column_names.contains(&"status".to_string()), "status column should exist");
+        assert!(column_names.contains(&"metadata".to_string()), "metadata column should exist");
+        assert!(column_names.contains(&"expires_at".to_string()), "expires_at column should exist");
+        
+        // Check that indexes were created
+        let mut stmt = conn.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_sessions_%'").unwrap();
+        let indexes: Vec<String> = stmt.query_map([], |row| Ok(row.get(0)?)).unwrap().collect::<Result<Vec<_>, _>>().unwrap();
+        
+        assert!(indexes.contains(&"idx_sessions_project_status_created".to_string()), "composite index should exist");
+        assert!(indexes.contains(&"idx_sessions_provider_session_id".to_string()), "provider_session_id index should exist");
+        assert!(indexes.contains(&"idx_sessions_last_activity".to_string()), "last_activity index should exist");
+    }
+
+    #[test]
+    fn sessions_table_with_new_columns() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("multi-agents.sqlite3");
+        let conn = open_or_create_db(db_path.to_string_lossy().as_ref()).unwrap();
+        
+        // Create project and agent
+        let p = insert_project(&conn, "demo").unwrap();
+        let a = insert_agent(&conn, &p.id, "backend", "backend", "gemini", "g-1.5", &vec!["Edit".into()], "sp").unwrap();
+        
+        // Insert session with new columns
+        let session_id = uuid();
+        let now = now_iso8601_utc();
+        conn.execute(
+            "INSERT INTO sessions(id, project_id, agent_id, provider, provider_session_id, created_at, last_activity, status, metadata, expires_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![session_id, p.id, a.id, "gemini", "provider_123", now, now, "active", r#"{"test": "data"}"#, now],
+        ).unwrap();
+        
+        // Verify the session was inserted with all columns
+        let mut stmt = conn.prepare("SELECT last_activity, status, metadata, expires_at FROM sessions WHERE id = ?1").unwrap();
+        let (last_activity, status, metadata, expires_at): (String, String, String, String) = stmt.query_row(params![session_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        }).unwrap();
+        
+        assert_eq!(last_activity, now);
+        assert_eq!(status, "active");
+        assert_eq!(metadata, r#"{"test": "data"}"#);
+        assert_eq!(expires_at, now);
     }
 }
