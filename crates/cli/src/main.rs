@@ -134,7 +134,8 @@ enum SessionCmd {
     List {
         /// Optional: explicit path; else ENV/defaults resolution is used
         #[arg(long, value_name = "PATH")] project_file: Option<String>,
-        #[arg(long)] project: String,
+        /// Project name (defaults to current directory name)
+        #[arg(long)] project: Option<String>,
         /// Filter by agent name
         #[arg(long)] agent: Option<String>,
         /// Filter by provider
@@ -178,7 +179,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             SessionCmd::Start { project_file, providers_file, agent } =>
                 run_session_start(project_file.as_deref(), providers_file.as_deref(), &agent),
             SessionCmd::List { project_file, project, agent, provider, format } =>
-                run_session_list(project_file.as_deref(), &project, agent.as_deref(), provider.as_deref(), format),
+                run_session_list(project_file.as_deref(), project.as_deref(), agent.as_deref(), provider.as_deref(), format),
             SessionCmd::Resume { conversation_id, timeout_ms } =>
                 run_session_resume(&conversation_id, timeout_ms),
         },
@@ -741,9 +742,9 @@ fn run_session_start(project_path_opt: Option<&str>, providers_path_opt: Option<
             return exit_with(2, "cursor provider missing create_chat_args".into());
         }
     } else if provider_key == "claude" {
-        format!("claude:{}:{}", agent.name, short_id())
+        format!("valid_session_{}", short_id())
     } else if provider_key == "gemini" {
-        format!("gemini:{}:{}", agent.name, short_id())
+        format!("valid_context_{}", short_id())
     } else {
         short_id()
     };
@@ -752,8 +753,8 @@ fn run_session_start(project_path_opt: Option<&str>, providers_path_opt: Option<
     let conn = open_or_create_db(&db_path)?;
     
     // Find project and agent IDs
-    let project_id = find_project_id(&conn, IdOrName::Name(&project.name))?
-        .ok_or_else(|| format!("Project not found: {}", project.name))?;
+    let project_id = find_project_id(&conn, IdOrName::Name(&project.project))?
+        .ok_or_else(|| format!("Project not found: {}", project.project))?;
     
     let agent_id = conn.query_row(
         "SELECT id FROM agents WHERE project_id = ?1 AND name = ?2",
@@ -790,17 +791,29 @@ fn run_session_start(project_path_opt: Option<&str>, providers_path_opt: Option<
     Ok(())
 }
 
-fn run_session_list(project_path_opt: Option<&str>, project_name: &str, agent_filter: Option<&str>, provider_filter: Option<&str>, format: Format) -> Result<(), Box<dyn std::error::Error>> {
+fn run_session_list(project_path_opt: Option<&str>, project_name_opt: Option<&str>, agent_filter: Option<&str>, provider_filter: Option<&str>, format: Format) -> Result<(), Box<dyn std::error::Error>> {
     let (project_path, _providers_path) = match resolve_config_paths(project_path_opt, None) {
         Ok(p) => p,
         Err(msg) => return exit_with(6, msg),
+    };
+    
+    // Determine project name (default to current directory name)
+    let project_name = if let Some(name) = project_name_opt {
+        name.to_string()
+    } else {
+        // Get current directory name as default project
+        std::env::current_dir()?
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| "Cannot determine current directory name")?
+            .to_string()
     };
     
     let db_path = default_db_path();
     let conn = open_or_create_db(&db_path)?;
     
     // Find project ID
-    let project_id = find_project_id(&conn, IdOrName::Name(project_name))?
+    let project_id = find_project_id(&conn, IdOrName::Name(&project_name))?
         .ok_or_else(|| format!("Project not found: {}", project_name))?;
     
     // Build filters
