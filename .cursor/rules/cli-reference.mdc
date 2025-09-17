@@ -1,0 +1,34 @@
+---
+description: CLI command palette and exit codes for quick reference
+globs: *.rs,*.md,*.mdx,*.yaml,*.yml
+---
+## Multi-Agents CLI — Quick Reference
+
+Voir la spécification complète: [docs/cli-reference.md](mdc:docs/cli-reference.md)
+
+Exécuter diagnostic et validation:
+- `multi-agents doctor`
+- `multi-agents config validate --project-file <path> --providers-file <path>`
+
+Gestion base et projet:
+- `multi-agents db init`
+- `multi-agents project add --name <name>`
+- `multi-agents agent add --project <name> --name <name> --role <role> --provider <prov> --model <model>`
+
+Sessions et envois:
+- `multi-agents session start --project <name> --agent <name>` → `conversation_id=<id>`
+- `multi-agents session list --project <name>`
+- `multi-agents session resume --conversation-id <id>`
+- `multi-agents send --conversation-id <id> --message "..."`
+- `multi-agents send --to @role|@all --message "..."`
+
+Agents en tmux et broadcast:
+- `multi-agents agent run|attach|stop --project <name> --agent <name>`
+- `multi-agents broadcast --project <name> --message "..." --mode oneshot|repl`
+
+TUI et contexte Git:
+- `multi-agents tui --project <name>`
+- `multi-agents context git --status|--diff|--log`
+
+Exit codes standardisés:
+- 0 OK; 1 generic; 2 invalid input; 3 provider unavailable; 4 provider CLI error; 5 timeout; 6 config missing; 7 DB error; 8 tmux error.

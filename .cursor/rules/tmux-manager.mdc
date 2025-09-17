@@ -1,0 +1,18 @@
+---
+description: tmux manager, REPL panes lifecycle and broadcast via send-keys
+globs: crates/cli/**/*.rs
+---
+## tmux Manager — REPL vs One-shot
+
+Principes:
+- Un pane tmux par agent/role pour le mode REPL.
+- Démarrage, attachement et arrêt gérés par l’orchestrateur.
+- Broadcast en mode REPL via `send-keys`; en mode one-shot via spawn parallèle contrôlé.
+
+Commandes liées:
+- `multi-agents agent run|attach|stop --project <name> --agent <name>`
+- `multi-agents broadcast --project <name> --message "..." --mode oneshot|repl`
+
+Références:
+- [docs/overview.md](mdc:docs/overview.md)
+- [docs/product-brief.md](mdc:docs/product-brief.md)

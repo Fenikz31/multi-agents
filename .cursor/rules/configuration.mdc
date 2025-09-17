@@ -1,0 +1,15 @@
+---
+description: Configuration files overview (defaults, providers, project)
+globs: config/*.yaml,config/*.yml
+---
+## Configuration — Defaults, Providers, Project
+
+Fichiers de configuration clés:
+- Defaults: [config/defaults.yaml](mdc:config/defaults.yaml)
+- Providers: [config/providers.yaml](mdc:config/providers.yaml)
+- Project: [config/project.yaml](mdc:config/project.yaml)
+
+L’orchestrateur dérive les flags des providers à partir de `providers.yaml` et applique des allowlists par rôle depuis `project.yaml`. Les prompts systèmes et modèles sont définis par agent.
+
+Validation via CLI:
+- `multi-agents config validate --project-file <path> --providers-file <path>`

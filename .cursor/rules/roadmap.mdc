@@ -1,0 +1,23 @@
+---
+description: TUI panels and navigation (Kanban, sessions list/detail, logs tail)
+---
+## Roadmap — Milestones & Acceptance
+
+Source: [docs/roadmap.md](mdc:docs/roadmap.md)
+
+Standards:
+- Concurrency: 3 one-shot max (FIFO); Timeouts: 120s send; 5s tmux.
+- Logging NDJSON par agent: `./logs/{project}/{role}.ndjson`.
+- Exit codes: 0,1,2,3,4,5,6,7,8 (voir CLI reference).
+
+Milestones M0–M9 (extraits):
+- M0 Doctor/Config — `doctor`, `config validate`
+- M1 Data Model — `db init`, `project add`, `agent add`
+- M2 Providers One-shot — `session start`, `send`
+- M3 Session Resume — `session list`, `session resume`
+- M4 tmux Agents — `agent run|attach|stop`
+- M5 Broadcast — `broadcast --mode oneshot|repl`
+- M6 TUI — `tui`
+- M7 Routing — `send --to @role|@all`
+- M8 Git Context — `context git --status|--diff|--log`
+- M9 Robustness/Observability — `send --timeout`, `broadcast --verbose`

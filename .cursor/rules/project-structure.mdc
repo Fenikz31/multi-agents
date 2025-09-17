@@ -1,0 +1,26 @@
+---
+alwaysApply: true
+---
+## Multi-Agents Project Structure
+
+Entrypoints et ressources clés pour naviguer le projet.
+
+- Orchestrateur CLI (Rust): [crates/cli/src/main.rs](mdc:crates/cli/src/main.rs)
+- Documentation produit et technique: [docs/](mdc:docs/)
+  - Overview: [docs/overview.md](mdc:docs/overview.md)
+  - Product Brief: [docs/product-brief.md](mdc:docs/product-brief.md)
+  - Data Model: [docs/data-model.md](mdc:docs/data-model.md)
+  - CLI Reference: [docs/cli-reference.md](mdc:docs/cli-reference.md)
+  - Logging: [docs/logging.md](mdc:docs/logging.md)
+  - Roadmap: [docs/roadmap.md](mdc:docs/roadmap.md)
+- Configuration: [config/](mdc:config/)
+  - Defaults: [config/defaults.yaml](mdc:config/defaults.yaml)
+  - Providers: [config/providers.yaml](mdc:config/providers.yaml)
+  - Project: [config/project.yaml](mdc:config/project.yaml)
+- Logs NDJSON par agent: [logs/](mdc:logs/)
+  - Exemples: [logs/full-demo/backend.ndjson](mdc:logs/full-demo/backend.ndjson), [logs/full-demo/frontend.ndjson](mdc:logs/full-demo/frontend.ndjson), [logs/full-demo/devops.ndjson](mdc:logs/full-demo/devops.ndjson), [logs/full-demo/supervisor.ndjson](mdc:logs/full-demo/supervisor.ndjson)
+
+Conventions:
+- Linux/WSL2 only (voir [docs/overview.md](mdc:docs/overview.md)).
+- CLIs externes: `gemini`, `claude`, `cursor-agent`, `tmux`, `git`.
+- SQLite: `./data/multi-agents.sqlite3`.

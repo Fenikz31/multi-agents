@@ -1,0 +1,26 @@
+---
+description: NDJSON logging schema and locations
+globs: logs/**/*.ndjson,docs/logging.md
+---
+## Logging & Observability (Consolidé)
+
+Format NDJSON par ligne et schéma requis: [docs/logging.md](mdc:docs/logging.md)
+
+Emplacements:
+- Par agent/role: `./logs/{project}/{role}.ndjson` — exemples:
+  - [logs/full-demo/backend.ndjson](mdc:logs/full-demo/backend.ndjson)
+  - [logs/full-demo/frontend.ndjson](mdc:logs/full-demo/frontend.ndjson)
+  - [logs/full-demo/devops.ndjson](mdc:logs/full-demo/devops.ndjson)
+  - [logs/full-demo/supervisor.ndjson](mdc:logs/full-demo/supervisor.ndjson)
+
+Événements & capture orchestrateur:
+- `start`: agent process started (no `text`).
+- `stdout_line`: ligne stdout provider.
+- `stderr_line`: ligne stderr provider.
+- `end`: process terminé (inclure `exit_code`).
+- Chaque ligne inclut `ts`, `project_id`, `agent_role`, `agent_id`, `provider`, `session_id`, `broadcast_id`, `message_id`, `text` (si applicable), `dur_ms`.
+
+Rotation & hygiène:
+- UTF-8 uniquement; pas de codes ANSI; flush à chaque newline.
+- Rotation/aging par taille/temps pour limiter l’usage disque.
+- Éviter d’écrire des secrets; filtrage côté orchestrateur si nécessaire.

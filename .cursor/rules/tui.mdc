@@ -1,0 +1,14 @@
+---
+description: TUI panels and navigation (Kanban, sessions list/detail, logs tail)
+globs: crates/cli/**/*.rs
+---
+## TUI — Kanban, Sessions, Logs
+
+Fonctionnalités TUI (ratatui):
+- Kanban: colonnes ToDo/Doing/Done (source: `tasks` dans SQLite)
+- Sessions: liste des sessions et détail d’une session (tail NDJSON)
+- Logs: suivi en temps réel des fichiers par agent/role
+
+Références docs:
+- [docs/overview.md](mdc:docs/overview.md)
+- [docs/product-brief.md](mdc:docs/product-brief.md)

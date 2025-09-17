@@ -1,0 +1,19 @@
+---
+description: SQLite schema overview and conventions
+globs: data/*.sqlite3,crates/cli/**/*.rs
+---
+## SQLite — Data Model
+
+Schéma résumé (voir la version source): [docs/data-model.md](mdc:docs/data-model.md)
+
+Tables clés:
+- projects(id TEXT PRIMARY KEY, name TEXT, created_at TEXT)
+- agents(id TEXT PRIMARY KEY, project_id TEXT, role TEXT, provider TEXT, model TEXT, allowed_tools_json TEXT, system_prompt TEXT, created_at TEXT)
+- sessions(id TEXT PRIMARY KEY, project_id TEXT, agent_id TEXT, provider TEXT, provider_session_id TEXT, created_at TEXT)
+- messages(id TEXT PRIMARY KEY, session_id TEXT, sender TEXT, content TEXT, broadcast_id TEXT, created_at TEXT)
+- tasks(id TEXT PRIMARY KEY, project_id TEXT, title TEXT, status TEXT, assignee_agent_id TEXT, created_at TEXT)
+
+Conventions:
+- Timestamps ISO-8601 UTC
+- Base locale: `./data/multi-agents.sqlite3`
+- Indexes pour tri et recherches (voir doc)

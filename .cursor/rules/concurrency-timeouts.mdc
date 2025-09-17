@@ -1,0 +1,17 @@
+---
+description: Concurrency limits, FIFO queueing, timeouts and standardized exit codes
+globs: crates/cli/**/*.rs,docs/*.md
+---
+## Concurrency & Timeouts — Orchestrator
+
+Règles globales:
+- Concurrency: maximum 3 exécutions one-shot en parallèle (FIFO).
+- Timeouts: 120s par `send`; 5s pour actions tmux.
+- Utiliser `--verbose` pour inspecter la file et les diagnostics.
+
+Exit codes standardisés:
+- 0 OK; 1 generic; 2 invalid input; 3 provider unavailable; 4 provider CLI error; 5 timeout; 6 config missing; 7 DB error; 8 tmux error.
+
+Références:
+- [docs/cli-reference.md](mdc:docs/cli-reference.md)
+- [docs/product-brief.md](mdc:docs/product-brief.md)

@@ -1,0 +1,18 @@
+---
+description: Configuration validation (YAML schemas), doctor and validate commands
+globs: config/*.yaml,config/*.yml,docs/*.md
+---
+## Configuration — Validation & Schémas
+
+Fichiers:
+- Defaults: [config/defaults.yaml](mdc:config/defaults.yaml)
+- Providers: [config/providers.yaml](mdc:config/providers.yaml)
+- Project: [config/project.yaml](mdc:config/project.yaml)
+
+Vérifications CLI:
+- `multi-agents doctor` — vérifie env, CLIs et schémas YAML
+- `multi-agents config validate --project-file <path> --providers-file <path>`
+
+Notes:
+- Les flags fournisseurs proviennent de `providers.yaml`; allowlists par rôle via `project.yaml`.
+- Voir aussi: [docs/cli-reference.md](mdc:docs/cli-reference.md), [docs/overview.md](mdc:docs/overview.md)

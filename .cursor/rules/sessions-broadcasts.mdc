@@ -1,0 +1,27 @@
+---
+description: Sessions, conversation IDs and broadcast mapping
+globs: crates/cli/**/*.rs,docs/*.md
+---
+## Sessions & Broadcasts — IDs et Mapping
+
+Concepts:
+- Conversation ID: identifiant interne qui peut mapper à `provider_session_id` (Claude `session_id`, Cursor `chat_id`, Gemini one-shot peut être nul).
+- Broadcast: fan-out d’un même message vers plusieurs agents; messages partagent le `broadcast_id`.
+
+Commandes utiles:
+- Démarrer et reprendre:
+  - `multi-agents session start --project <name> --agent <name>`
+  - `multi-agents session resume --conversation-id <id>`
+- Envoi ciblé ou groupé:
+  - `multi-agents send --conversation-id <id> --message "..."`
+  - `multi-agents send --to @role|@all --message "..."`
+  - `multi-agents broadcast --project <name> --message "..." --mode oneshot|repl`
+
+Persistance:
+- `sessions(provider_session_id)` pour conserver l’ID natif du provider quand dispo
+- `messages(broadcast_id)` pour corréler les fan-outs
+
+Références docs:
+- [docs/product-brief.md](mdc:docs/product-brief.md)
+- [docs/data-model.md](mdc:docs/data-model.md)
+- [docs/cli-reference.md](mdc:docs/cli-reference.md)
