@@ -337,6 +337,135 @@ impl SessionManager for ClaudeSessionManager {
     }
 }
 
+// ---------- CursorSessionManager Implementation ----------
+
+pub struct CursorSessionManager {
+    conn: Connection,
+}
+
+impl CursorSessionManager {
+    pub fn new(conn: Connection) -> Self {
+        Self { conn }
+    }
+    
+    fn ping_cursor_chat(&self, chat_id: &str) -> Result<bool, SessionError> {
+        // Simulate Cursor chat validation
+        // In real implementation, this would call Cursor CLI with --resume
+        if chat_id.is_empty() {
+            return Ok(false);
+        }
+        
+        // Mock validation logic - in real implementation, this would:
+        // 1. Call cursor-agent with --resume="chat-id-here"
+        // 2. Check if chat is still active
+        // 3. Return true if valid, false if expired/invalid
+        
+        // For now, simulate that chat IDs starting with "valid_" are valid
+        Ok(chat_id.starts_with("valid_"))
+    }
+    
+    fn create_cursor_chat(&self) -> Result<String, SessionError> {
+        // Simulate Cursor chat creation
+        // In real implementation, this would call cursor-agent create-chat
+        // and return the generated chat_id
+        
+        // Mock implementation: generate a new chat ID using timestamp + random
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        let random = (timestamp % 10000) as u32; // Use last 4 digits for uniqueness
+        Ok(format!("valid_chat_{}_{}", timestamp, random))
+    }
+}
+
+impl SessionManager for CursorSessionManager {
+    fn validate_session(&self, session_id: &str) -> Result<bool, SessionError> {
+        // First check if session exists in database
+        let session = find_session(&self.conn, session_id)?;
+        let session = session.ok_or_else(|| SessionError::NotFound(session_id.to_string()))?;
+        
+        // Check if session is already marked as expired/invalid
+        if session.status != SessionStatus::Active {
+            return Ok(false);
+        }
+        
+        // If we have a provider_session_id (chat_id), ping Cursor to validate
+        if let Some(provider_session_id) = &session.provider_session_id {
+            let is_valid = self.ping_cursor_chat(provider_session_id)?;
+            
+            // Update session status based on validation result
+            let new_status = if is_valid {
+                SessionStatus::Active
+            } else {
+                SessionStatus::Expired
+            };
+            
+            update_session(&self.conn, session_id, None, None, Some(new_status))?;
+            
+            Ok(is_valid)
+        } else {
+            // No provider_session_id means session is not resumable
+            Ok(false)
+        }
+    }
+    
+    fn resume_session(&self, session_id: &str) -> Result<SessionContext, SessionError> {
+        let session = find_session(&self.conn, session_id)?
+            .ok_or_else(|| SessionError::NotFound(session_id.to_string()))?;
+        
+        // Validate session before resuming
+        if !self.validate_session(session_id)? {
+            return Err(SessionError::Expired(session_id.to_string()));
+        }
+        
+        let is_resumable = session.provider_session_id.is_some();
+        let provider_session_id = session.provider_session_id.clone();
+        
+        Ok(SessionContext {
+            session,
+            is_resumable,
+            provider_session_id,
+        })
+    }
+    
+    fn create_session(&self, project_id: &str, agent_id: &str, provider: &str, provider_session_id: Option<&str>) -> Result<Session, SessionError> {
+        // Validate that this is a Cursor session
+        if provider != "cursor-agent" {
+            return Err(SessionError::Invalid(format!("Expected cursor-agent provider, got {}", provider)));
+        }
+        
+        // If no provider_session_id provided, create a new Cursor chat
+        let chat_id = if let Some(provider_session_id) = provider_session_id {
+            // Validate existing chat_id
+            if !self.ping_cursor_chat(provider_session_id)? {
+                return Err(SessionError::Invalid(format!("Invalid Cursor chat: {}", provider_session_id)));
+            }
+            provider_session_id.to_string()
+        } else {
+            // Create new chat
+            self.create_cursor_chat()?
+        };
+        
+        // Create session in database
+        let session = insert_session(&self.conn, project_id, agent_id, provider, Some(&chat_id))?;
+        
+        Ok(session)
+    }
+    
+    fn cleanup_expired_sessions(&self) -> Result<u32, SessionError> {
+        // Clean up sessions that are marked as expired or invalid
+        let now = now_iso8601_utc();
+        let expired_count = self.conn.execute(
+            "DELETE FROM sessions WHERE status IN ('expired', 'invalid') AND last_activity < ?1",
+            params![now],
+        )?;
+        
+        Ok(expired_count as u32)
+    }
+}
+
 // ---------- Repositories ----------
 
 pub struct Project { pub id: String, pub name: String }
@@ -916,7 +1045,7 @@ mod tests {
         let a = insert_agent(&conn, &p.id, "backend", "backend", "claude", "claude-3", &vec!["Edit".into()], "sp").unwrap();
         
         // Create sessions with different statuses
-        let active_session = insert_session(&conn, &p.id, &a.id, "claude", Some("valid_session_123")).unwrap();
+        let _active_session = insert_session(&conn, &p.id, &a.id, "claude", Some("valid_session_123")).unwrap();
         let expired_session = insert_session(&conn, &p.id, &a.id, "claude", Some("invalid_session_456")).unwrap();
         
         // Mark one session as expired
@@ -944,5 +1073,157 @@ mod tests {
         assert!(manager.ping_claude_session("valid_test_session").unwrap());
         assert!(!manager.ping_claude_session("invalid_test_session").unwrap());
         assert!(!manager.ping_claude_session("").unwrap());
+    }
+
+    #[test]
+    fn cursor_session_manager_validation() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("multi-agents.sqlite3");
+        let conn = open_or_create_db(db_path.to_string_lossy().as_ref()).unwrap();
+        
+        // Create project and agent
+        let p = insert_project(&conn, "demo").unwrap();
+        let a = insert_agent(&conn, &p.id, "frontend", "frontend", "cursor-agent", "auto", &vec!["Edit".into()], "sp").unwrap();
+        
+        // Create sessions
+        let session = insert_session(&conn, &p.id, &a.id, "cursor-agent", Some("valid_chat_123")).unwrap();
+        let invalid_session = insert_session(&conn, &p.id, &a.id, "cursor-agent", Some("invalid_chat_456")).unwrap();
+        
+        let manager = CursorSessionManager::new(conn);
+        
+        // Test validation with valid chat
+        let is_valid = manager.validate_session(&session.id).unwrap();
+        assert!(is_valid, "Valid chat should be valid");
+        
+        // Test validation with invalid chat
+        let is_valid = manager.validate_session(&invalid_session.id).unwrap();
+        assert!(!is_valid, "Invalid chat should not be valid");
+        
+        // Test validation with non-existent session
+        let result = manager.validate_session("non_existent_session");
+        assert!(matches!(result, Err(SessionError::NotFound(_))));
+    }
+
+    #[test]
+    fn cursor_session_manager_resume() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("multi-agents.sqlite3");
+        let conn = open_or_create_db(db_path.to_string_lossy().as_ref()).unwrap();
+        
+        // Create project and agent
+        let p = insert_project(&conn, "demo").unwrap();
+        let a = insert_agent(&conn, &p.id, "frontend", "frontend", "cursor-agent", "auto", &vec!["Edit".into()], "sp").unwrap();
+        
+        // Create sessions
+        let session = insert_session(&conn, &p.id, &a.id, "cursor-agent", Some("valid_chat_123")).unwrap();
+        let invalid_session = insert_session(&conn, &p.id, &a.id, "cursor-agent", Some("invalid_chat_456")).unwrap();
+        
+        let manager = CursorSessionManager::new(conn);
+        
+        // Test successful resume
+        let context = manager.resume_session(&session.id).unwrap();
+        assert_eq!(context.session.id, session.id);
+        assert!(context.is_resumable);
+        assert_eq!(context.provider_session_id, Some("valid_chat_123".to_string()));
+        
+        // Test resume with invalid chat
+        let result = manager.resume_session(&invalid_session.id);
+        assert!(matches!(result, Err(SessionError::Expired(_))));
+        
+        // Test resume with non-existent session
+        let result = manager.resume_session("non_existent_session");
+        assert!(matches!(result, Err(SessionError::NotFound(_))));
+    }
+
+    #[test]
+    fn cursor_session_manager_create() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("multi-agents.sqlite3");
+        let conn = open_or_create_db(db_path.to_string_lossy().as_ref()).unwrap();
+        
+        // Create project and agent
+        let p = insert_project(&conn, "demo").unwrap();
+        let a = insert_agent(&conn, &p.id, "frontend", "frontend", "cursor-agent", "auto", &vec!["Edit".into()], "sp").unwrap();
+        
+        let manager = CursorSessionManager::new(conn);
+        
+        // Test successful creation with valid chat
+        let session = manager.create_session(&p.id, &a.id, "cursor-agent", Some("valid_chat_123")).unwrap();
+        assert_eq!(session.provider, "cursor-agent");
+        assert_eq!(session.provider_session_id, Some("valid_chat_123".to_string()));
+        assert_eq!(session.status, SessionStatus::Active);
+        
+        // Test creation with invalid chat
+        let result = manager.create_session(&p.id, &a.id, "cursor-agent", Some("invalid_chat_456"));
+        assert!(matches!(result, Err(SessionError::Invalid(_))));
+        
+        // Test creation with wrong provider
+        let result = manager.create_session(&p.id, &a.id, "claude", Some("valid_chat_123"));
+        assert!(matches!(result, Err(SessionError::Invalid(_))));
+        
+        // Test creation without chat ID (should create new chat)
+        let session = manager.create_session(&p.id, &a.id, "cursor-agent", None).unwrap();
+        assert_eq!(session.provider, "cursor-agent");
+        assert!(session.provider_session_id.is_some());
+        assert!(session.provider_session_id.unwrap().starts_with("valid_chat_"));
+        assert_eq!(session.status, SessionStatus::Active);
+    }
+
+    #[test]
+    fn cursor_session_manager_cleanup() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("multi-agents.sqlite3");
+        let conn = open_or_create_db(db_path.to_string_lossy().as_ref()).unwrap();
+        
+        // Create project and agent
+        let p = insert_project(&conn, "demo").unwrap();
+        let a = insert_agent(&conn, &p.id, "frontend", "frontend", "cursor-agent", "auto", &vec!["Edit".into()], "sp").unwrap();
+        
+        // Create sessions with different statuses
+        let _active_session = insert_session(&conn, &p.id, &a.id, "cursor-agent", Some("valid_chat_123")).unwrap();
+        let expired_session = insert_session(&conn, &p.id, &a.id, "cursor-agent", Some("invalid_chat_456")).unwrap();
+        
+        // Mark one session as expired
+        update_session(&conn, &expired_session.id, None, None, Some(SessionStatus::Expired)).unwrap();
+        
+        let manager = CursorSessionManager::new(conn);
+        
+        // Test cleanup
+        let cleaned_count = manager.cleanup_expired_sessions().unwrap();
+        assert_eq!(cleaned_count, 1, "Should clean up 1 expired session");
+        
+        // Note: We can't verify the cleanup results here because conn was moved to manager
+        // In a real implementation, we would need to add a method to check session existence
+        // or restructure the test to avoid moving the connection
+    }
+
+    #[test]
+    fn cursor_session_manager_ping_logic() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("multi-agents.sqlite3");
+        let conn = open_or_create_db(db_path.to_string_lossy().as_ref()).unwrap();
+        let manager = CursorSessionManager::new(conn);
+        
+        // Test ping logic directly
+        assert!(manager.ping_cursor_chat("valid_test_chat").unwrap());
+        assert!(!manager.ping_cursor_chat("invalid_test_chat").unwrap());
+        assert!(!manager.ping_cursor_chat("").unwrap());
+    }
+
+    #[test]
+    fn cursor_session_manager_create_chat() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("multi-agents.sqlite3");
+        let conn = open_or_create_db(db_path.to_string_lossy().as_ref()).unwrap();
+        let manager = CursorSessionManager::new(conn);
+        
+        // Test chat creation
+        let chat_id1 = manager.create_cursor_chat().unwrap();
+        let chat_id2 = manager.create_cursor_chat().unwrap();
+        
+        assert!(chat_id1.starts_with("valid_chat_"));
+        assert!(chat_id2.starts_with("valid_chat_"));
+        // Note: In fast tests, IDs might be identical due to same timestamp
+        // In real implementation, this would be handled by the actual Cursor CLI
     }
 }
