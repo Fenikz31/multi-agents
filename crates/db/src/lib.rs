@@ -1,5 +1,6 @@
 use rusqlite::{Connection, params, OptionalExtension};
 use serde_json::json;
+use config_model::ProjectConfig;
 
 #[derive(Debug, thiserror::Error)]
 pub enum DbError {
@@ -1507,4 +1508,51 @@ mod tests {
         // Note: In fast tests, IDs might be identical due to same timestamp
         // In real implementation, this would be handled by the actual Gemini API
     }
+}
+
+// ---------- Project Synchronization ----------
+
+/// Synchronize a project and its agents from YAML configuration to database
+/// This function is idempotent: if project/agents already exist, they are not modified
+pub fn sync_project_from_config(conn: &Connection, project_config: &ProjectConfig) -> Result<(), DbError> {
+    // 1. Ensure project exists
+    let project_id = match find_project_id(conn, IdOrName::Name(&project_config.project))? {
+        Some(id) => {
+            println!("Project '{}' already exists in database", project_config.project);
+            id
+        }
+        None => {
+            println!("Creating project '{}' in database", project_config.project);
+            let project = insert_project(conn, &project_config.project)?;
+            project.id
+        }
+    };
+
+    // 2. Ensure all agents exist
+    for agent_config in &project_config.agents {
+        let agent_exists = conn.query_row(
+            "SELECT COUNT(*) FROM agents WHERE project_id = ?1 AND name = ?2",
+            params![&project_id, &agent_config.name],
+            |row| Ok(row.get::<_, i64>(0)?)
+        )? > 0;
+
+        if agent_exists {
+            println!("Agent '{}' already exists in database", agent_config.name);
+        } else {
+            println!("Creating agent '{}' in database", agent_config.name);
+            let _agent = insert_agent(
+                conn,
+                &project_id,
+                &agent_config.name,
+                &agent_config.role,
+                &agent_config.provider,
+                &agent_config.model,
+                &agent_config.allowed_tools,
+                &agent_config.system_prompt,
+            )?;
+        }
+    }
+
+    println!("Project '{}' synchronized successfully", project_config.project);
+    Ok(())
 }
