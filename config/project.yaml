@@ -10,7 +10,7 @@ agents:
       Backend engineer. Respond in up to 5 bullet points
   - name: frontend
     role: frontend
-    provider: cursor-agent
+    provider: gemini
     model: auto
     allowed_tools: [Bash, Edit]
     system_prompt: >
