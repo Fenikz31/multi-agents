@@ -1,0 +1,24 @@
+schema_version: 1
+project: demo
+agents:
+  - name: backend
+    role: backend
+    provider: cursor-agent
+    model: auto
+    allowed_tools: [Bash, Edit]
+    system_prompt: >
+      Backend engineer. Respond in up to 5 bullet points
+  - name: frontend
+    role: frontend
+    provider: cursor-agent
+    model: auto
+    allowed_tools: [Bash, Edit]
+    system_prompt: >
+      Frontend engineer. Respond in up to 5 bullet points
+  - name: devops
+    role: devops
+    provider: cursor-agent
+    model: auto
+    allowed_tools: [Bash, Edit]
+    system_prompt: >
+      DevOps engineer. Respond in up to 5 bullet points

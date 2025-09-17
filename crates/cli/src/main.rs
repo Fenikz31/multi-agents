@@ -11,6 +11,9 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 use db::now_iso8601_utc;
 use std::thread;
+use std::path::Path;
+use std::sync::mpsc;
+use indicatif::{ProgressBar, ProgressStyle};
 
 #[derive(Parser, Debug)]
 #[command(name = "multi-agents", version)]
@@ -44,8 +47,10 @@ enum Commands {
     },
     /// Send a one-shot message to agent(s)
     Send {
-        #[arg(long, value_name = "PATH")] project_file: String,
-        #[arg(long, value_name = "PATH")] providers_file: String,
+        /// Optional: explicit path; else ENV/defaults resolution is used
+        #[arg(long, value_name = "PATH")] project_file: Option<String>,
+        /// Optional: explicit path; else ENV/defaults resolution is used
+        #[arg(long, value_name = "PATH")] providers_file: Option<String>,
         /// Target: @all, @role, or agent name
         #[arg(long)] to: String,
         #[arg(long)] message: String,
@@ -53,6 +58,12 @@ enum Commands {
         #[arg(long)] session_id: Option<String>,
         /// Optional: provide explicit chat id (for cursor-agent)
         #[arg(long)] chat_id: Option<String>,
+        /// Optional: override per-target timeout in milliseconds (default 120_000)
+        #[arg(long, value_name = "MILLIS")] timeout_ms: Option<u64>,
+        /// Output format for this command (text|json)
+        #[arg(long, value_enum, default_value_t = Format::Text)] format: Format,
+        /// Show progress spinner (default ON); disable with --no-progress
+        #[arg(long = "progress", default_value_t = true)] progress: bool,
     },
     /// Session management
     Session {
@@ -65,9 +76,18 @@ enum Commands {
 enum ConfigCmd {
     /// Validate configuration files (YAML schemas + semantic rules)
     Validate {
-        #[arg(long, value_name = "PATH")] project_file: String,
-        #[arg(long, value_name = "PATH")] providers_file: String,
+        /// Optional: explicit path; else ENV/defaults resolution is used
+        #[arg(long, value_name = "PATH")] project_file: Option<String>,
+        /// Optional: explicit path; else ENV/defaults resolution is used
+        #[arg(long, value_name = "PATH")] providers_file: Option<String>,
         #[arg(long, value_enum, default_value_t = Format::Text)] format: Format,
+    },
+    /// Create default config files under a directory (default: ./config)
+    Init {
+        /// Target directory for config files
+        #[arg(long, value_name = "DIR")] dir: Option<String>,
+        /// Overwrite existing files if present
+        #[arg(long, default_value_t = false)] force: bool,
     },
 }
 
@@ -102,8 +122,10 @@ enum DbCmd {
 enum SessionCmd {
     /// Start a provider session and print conversation_id
     Start {
-        #[arg(long, value_name = "PATH")] project_file: String,
-        #[arg(long, value_name = "PATH")] providers_file: String,
+        /// Optional: explicit path; else ENV/defaults resolution is used
+        #[arg(long, value_name = "PATH")] project_file: Option<String>,
+        /// Optional: explicit path; else ENV/defaults resolution is used
+        #[arg(long, value_name = "PATH")] providers_file: Option<String>,
         #[arg(long)] agent: String,
     },
 }
@@ -117,8 +139,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     match cli.cmd {
         Commands::Config { cmd } => match cmd {
             ConfigCmd::Validate { project_file, providers_file, format } => {
-                run_config_validate(&project_file, &providers_file, format)
+                run_config_validate(project_file.as_deref(), providers_file.as_deref(), format)
             }
+            ConfigCmd::Init { dir, force } => run_config_init(dir.as_deref(), force),
         },
         Commands::Doctor { format, ndjson_sample, snapshot } => run_doctor(format, ndjson_sample.as_deref(), snapshot.as_deref()),
         Commands::Db { cmd } => match cmd {
@@ -127,19 +150,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             DbCmd::AgentAdd { project, name, role, provider, model, allowed_tool, system_prompt, db_path } =>
                 run_agent_add(&project, &name, &role, &provider, &model, &allowed_tool, &system_prompt, db_path.as_deref()),
         },
-        Commands::Send { project_file, providers_file, to, message, session_id, chat_id } => {
-            run_send(&project_file, &providers_file, &to, &message, session_id.as_deref(), chat_id.as_deref())
+        Commands::Send { project_file, providers_file, to, message, session_id, chat_id, timeout_ms, format, progress } => {
+            run_send(project_file.as_deref(), providers_file.as_deref(), &to, &message, session_id.as_deref(), chat_id.as_deref(), timeout_ms, format, progress)
         },
         Commands::Session { cmd } => match cmd {
             SessionCmd::Start { project_file, providers_file, agent } =>
-                run_session_start(&project_file, &providers_file, &agent),
+                run_session_start(project_file.as_deref(), providers_file.as_deref(), &agent),
         },
     }
 }
 
-fn run_config_validate(project_path: &str, providers_path: &str, format: Format) -> Result<(), Box<dyn std::error::Error>> {
-    let proj_s = fs::read_to_string(project_path)?;
-    let prov_s = fs::read_to_string(providers_path)?;
+fn run_config_validate(project_path_opt: Option<&str>, providers_path_opt: Option<&str>, format: Format) -> Result<(), Box<dyn std::error::Error>> {
+    let (project_path, providers_path) = match resolve_config_paths(project_path_opt, providers_path_opt) {
+        Ok(p) => p,
+        Err(msg) => return exit_with(6, msg),
+    };
+    let proj_s = fs::read_to_string(&project_path)?;
+    let prov_s = fs::read_to_string(&providers_path)?;
 
     let project = match parse_project_yaml(&proj_s) {
         Ok(p) => p,
@@ -222,9 +249,13 @@ fn looks_like_uuid(s: &str) -> bool { s.len() >= 16 && s.chars().all(|c| c.is_as
 const DEFAULT_SEND_TIMEOUT_MS: u64 = 120_000;
 const MAX_CONCURRENCY: usize = 3;
 
-fn run_send(project_path: &str, providers_path: &str, to: &str, message: &str, session_id_opt: Option<&str>, chat_id_opt: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
-    let proj_s = fs::read_to_string(project_path)?;
-    let prov_s = fs::read_to_string(providers_path)?;
+fn run_send(project_path_opt: Option<&str>, providers_path_opt: Option<&str>, to: &str, message: &str, session_id_opt: Option<&str>, chat_id_opt: Option<&str>, timeout_ms_flag: Option<u64>, format: Format, progress: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let (project_path, providers_path) = match resolve_config_paths(project_path_opt, providers_path_opt) {
+        Ok(p) => p,
+        Err(msg) => return exit_with(6, msg),
+    };
+    let proj_s = fs::read_to_string(&project_path)?;
+    let prov_s = fs::read_to_string(&providers_path)?;
     let project = match parse_project_yaml(&proj_s) { Ok(p) => p, Err(e) => return exit_with(2, format!("project: {}", e)) };
     let providers = match parse_providers_yaml(&prov_s) { Ok(p) => p, Err(e) => return exit_with(2, format!("providers: {}", e)) };
 
@@ -245,6 +276,9 @@ fn run_send(project_path: &str, providers_path: &str, to: &str, message: &str, s
     // Execute with bounded concurrency
     let mut handles: Vec<std::thread::JoinHandle<i32>> = Vec::new();
     let mut results: Vec<i32> = Vec::new();
+    let multi = targets.len() > 1;
+    let per_timeout = timeout_ms_flag.unwrap_or(DEFAULT_SEND_TIMEOUT_MS);
+    let pb = if progress { Some(make_pb()) } else { None };
     for agent in targets {
         // batch if needed
         if handles.len() >= MAX_CONCURRENCY {
@@ -260,13 +294,17 @@ fn run_send(project_path: &str, providers_path: &str, to: &str, message: &str, s
         let message_owned = message.to_string();
         let session_id_owned = session_id_opt.map(|s| s.to_string());
         let chat_id_owned = chat_id_opt.map(|s| s.to_string());
+        let print_header = multi;
+        let pb_clone = pb.as_ref().map(|p| p.clone());
         handles.push(thread::spawn(move || {
     match prov_cfg {
                 Some(tpl) => run_oneshot_provider(
                     &project_name, &agent_role, &provider_key, &tpl,
                     &message_owned, &agent_system, &agent_allowed,
                     session_id_owned.as_deref(), chat_id_owned.as_deref(),
-                    DEFAULT_SEND_TIMEOUT_MS
+                    per_timeout,
+                    print_header,
+                    pb_clone
                 ),
                 None => 3, // provider unavailable in config
             }
@@ -282,6 +320,11 @@ fn run_send(project_path: &str, providers_path: &str, to: &str, message: &str, s
     else if results.iter().any(|&c| c == 3) { overall = 3; }
     else if results.iter().any(|&c| c == 2) { overall = 2; }
     if overall != 0 { return exit_with(overall, format!("send: {} targets processed with non-zero codes", results.len())); }
+
+    if let Some(pb) = pb { pb.finish_and_clear(); }
+    if let Format::Json = format {
+        println!("{}", serde_json::json!({"status":"ok"}));
+    }
     Ok(())
 }
 
@@ -296,40 +339,299 @@ fn run_oneshot_provider(
     session_id_opt: Option<&str>,
     chat_id_opt: Option<&str>,
     timeout_ms: u64,
+    print_header: bool,
+    pb_opt: Option<ProgressBar>,
 ) -> i32 {
     let bin = tpl.cmd.clone();
     if bin.trim().is_empty() { return 3; }
     let allowed_join = allowed_tools.join(",");
-    let mut args = tpl.oneshot_args.clone();
-    // Placeholder replacement
+    // Build args with placeholder replacement and conditional removal of session_id flag pair
     let mut unresolved = false;
-    for a in &mut args {
-        if a.contains("{chat_id}") {
-            if let Some(cid) = chat_id_opt { *a = a.replace("{chat_id}", cid); } else { unresolved = true; }
+    let session_id_val_opt: Option<String> = match session_id_opt {
+        Some(s) if !s.trim().is_empty() => Some(s.to_string()),
+        _ => Some(uuid_v4_like()),
+    };
+    let mut args: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < tpl.oneshot_args.len() {
+        let tok = &tpl.oneshot_args[i];
+        if tok == "--session-id" {
+            let next = tpl.oneshot_args.get(i + 1);
+            if next.map(|n| n.contains("{session_id}")).unwrap_or(false) {
+                if let Some(val) = &session_id_val_opt {
+                    args.push("--session-id".into());
+                    args.push(val.clone());
+                } // else skip both tokens entirely
+                i += 2;
+                continue;
+            }
         }
-        *a = a.replace("{prompt}", prompt)
-             .replace("{system_prompt}", system_prompt)
-             .replace("{allowed_tools}", &allowed_join)
-             .replace("{session_id}", session_id_opt.unwrap_or(&format!("oneshot-{}", short_id())));
+        let mut replaced = tok.clone();
+        if replaced.contains("{chat_id}") {
+            if let Some(cid) = chat_id_opt { replaced = replaced.replace("{chat_id}", cid); } else { unresolved = true; }
+        }
+        replaced = replaced.replace("{prompt}", prompt)
+            .replace("{system_prompt}", system_prompt)
+            .replace("{allowed_tools}", &allowed_join);
+        if replaced.contains("{session_id}") {
+            if let Some(val) = &session_id_val_opt {
+                replaced = replaced.replace("{session_id}", val);
+            } else {
+                // No session id provided: drop this token
+                i += 1;
+                continue;
+            }
+        }
+        args.push(replaced);
+        i += 1;
     }
-    if unresolved { return 2; }
+    // If cursor requires chat_id and none provided, try auto-create chat
+    if unresolved {
+        if provider_key.starts_with("cursor") {
+            match create_cursor_chat(tpl, system_prompt) {
+                Ok(chat_id) => {
+                    // Rebuild args with chat_id now available
+                    args.clear();
+                    i = 0;
+                    while i < tpl.oneshot_args.len() {
+                        let tok = &tpl.oneshot_args[i];
+                        if tok == "--session-id" {
+                            let next = tpl.oneshot_args.get(i + 1);
+                            if next.map(|n| n.contains("{session_id}")).unwrap_or(false) {
+                                if let Some(val) = &session_id_val_opt {
+                                    args.push("--session-id".into());
+                                    args.push(val.clone());
+                                }
+                                i += 2;
+                                continue;
+                            }
+                        }
+                        let mut replaced = tok.clone();
+                        if replaced.contains("{chat_id}") { replaced = replaced.replace("{chat_id}", &chat_id); }
+                        replaced = replaced
+                            .replace("{prompt}", prompt)
+                            .replace("{system_prompt}", system_prompt)
+                            .replace("{allowed_tools}", &allowed_join);
+                        if replaced.contains("{session_id}") {
+                            if let Some(val) = &session_id_val_opt {
+                                replaced = replaced.replace("{session_id}", val);
+                            } else { i += 1; continue; }
+                        }
+                        args.push(replaced);
+                        i += 1;
+                    }
+                }
+                Err(e) => {
+                    if e == "timeout" { return 5; }
+                    return 4;
+                }
+            }
+        } else {
+            return 2;
+        }
+    }
+
+    // Compose final session id for logging (best-effort)
+    let final_session_id = if provider_key.starts_with("cursor") {
+        chat_id_opt.unwrap_or("")
+    } else {
+        session_id_val_opt.as_deref().unwrap_or("")
+    };
 
     // Execute
     let start_ts = now_iso8601_utc();
-    log_ndjson(project, agent_role, provider_key, None, "system", "start", None, None, Some(&start_ts));
-    match run_with_timeout(&bin, &args.iter().map(|s| s.as_str()).collect::<Vec<_>>(), Duration::from_millis(timeout_ms)) {
-        Ok((code, out, err)) => {
-            for line in out.lines() { log_ndjson(project, agent_role, provider_key, None, "agent", "stdout_line", Some(line), None, None); }
-            for line in err.lines() { log_ndjson(project, agent_role, provider_key, None, "agent", "stderr_line", Some(line), None, None); }
-            log_ndjson(project, agent_role, provider_key, None, "system", "end", None, Some(code), None);
+    log_ndjson(project, agent_role, provider_key, Some(final_session_id), "system", "start", None, None, Some(&start_ts));
+    if print_header {
+        println!("=== role:{} provider:{} ===", agent_role, provider_key);
+    }
+    // For cursor-agent, enforce stream-json output to avoid blocking and parse JSON to text
+    let mut args_final = args;
+    let mut parse_cursor_stream = false;
+    if provider_key.starts_with("cursor") {
+        parse_cursor_stream = true;
+        let mut idx = None;
+        for (i, t) in args_final.iter().enumerate() {
+            if t == "--output-format" { idx = Some(i); break; }
+        }
+        if let Some(i) = idx {
+            if i + 1 < args_final.len() { args_final[i + 1] = "stream-json".into(); }
+            else { args_final.push("stream-json".into()); }
+        } else {
+            args_final.push("--output-format".into());
+            args_final.push("stream-json".into());
+        }
+    }
+    if let Some(pb) = &pb_opt { pb.set_message(format!("{}:{}", agent_role, provider_key)); }
+    match run_with_timeout_streaming(&bin, &args_final.iter().map(|s| s.as_str()).collect::<Vec<_>>(), Duration::from_millis(timeout_ms), project, agent_role, provider_key, final_session_id, pb_opt.as_ref(), parse_cursor_stream) {
+        Ok(code) => {
+            log_ndjson(project, agent_role, provider_key, Some(final_session_id), "system", "end", None, Some(code), None);
             if code == 0 { 0 } else { 4 }
         }
         Err(e) => {
-            if e == "timeout" { log_ndjson(project, agent_role, provider_key, None, "system", "end", None, Some(5), None); 5 }
+            if e == "timeout" { log_ndjson(project, agent_role, provider_key, Some(final_session_id), "system", "end", None, Some(5), None); 5 }
             else if e.contains("No such file") || e.contains("not found") { 3 }
             else { 4 }
         }
     }
+}
+
+fn create_cursor_chat(tpl: &config_model::ProviderTemplate, system_prompt: &str) -> Result<String, String> {
+    let create_args_opt = tpl.create_chat_args.as_ref();
+    let create_args = match create_args_opt { Some(a) => a, None => return Err("missing_create_chat_args".into()) };
+    let args: Vec<String> = create_args.iter().map(|a| a.replace("{system_prompt}", system_prompt)).collect();
+    match run_with_timeout(&tpl.cmd, &args.iter().map(|s| s.as_str()).collect::<Vec<_>>(), Duration::from_millis(5000)) {
+        Ok((_code, out, err)) => {
+            let text = if !out.trim().is_empty() { out } else { err };
+            let id = text.lines().filter(|l| !l.trim().is_empty()).last().unwrap_or("").trim().to_string();
+            if id.is_empty() { return Err("empty_chat_id".into()); }
+            Ok(id)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+enum LineEvent { Stdout(String), Stderr(String), Exit(i32) }
+
+fn run_with_timeout_streaming(
+    bin: &str,
+    args: &[&str],
+    timeout: Duration,
+    project: &str,
+    agent_role: &str,
+    provider_key: &str,
+    session_id: &str,
+    pb_opt: Option<&ProgressBar>,
+    parse_cursor_stream: bool,
+) -> Result<i32, String> {
+    let mut child = Command::new(bin)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+
+    let (tx, rx) = mpsc::channel::<LineEvent>();
+
+    // stdout reader
+    if let Some(so) = child.stdout.take() {
+        let txo = tx.clone();
+        thread::spawn(move || {
+            let reader = BufReader::new(so);
+            for line_res in reader.lines() {
+                if let Ok(line) = line_res { let _ = txo.send(LineEvent::Stdout(line)); } else { break; }
+            }
+        });
+    }
+    // stderr reader
+    if let Some(se) = child.stderr.take() {
+        let txe = tx.clone();
+        thread::spawn(move || {
+            let reader = BufReader::new(se);
+            for line_res in reader.lines() {
+                if let Ok(line) = line_res { let _ = txe.send(LineEvent::Stderr(line)); } else { break; }
+            }
+        });
+    }
+    // wait thread
+    let txw = tx.clone();
+    thread::spawn(move || {
+        match child.wait() {
+            Ok(status) => { let _ = txw.send(LineEvent::Exit(status.code().unwrap_or(-1))); }
+            Err(_) => { let _ = txw.send(LineEvent::Exit(-1)); }
+        }
+    });
+
+    let start = Instant::now();
+    let mut exit_code: Option<i32> = None;
+    let mut saw_final_result: bool = false;
+    loop {
+        let remaining = if start.elapsed() >= timeout { 0 } else { (timeout - start.elapsed()).as_millis() as u64 };
+        if remaining == 0 { return Err("timeout".into()); }
+        match rx.recv_timeout(Duration::from_millis(remaining)) {
+            Ok(LineEvent::Stdout(line)) => {
+                if parse_cursor_stream {
+                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) {
+                        // Parse cursor stream-json according to official spec
+                        let mut text_to_print = None;
+                        
+                        if let Some(event_type) = v.get("type").and_then(|t| t.as_str()) {
+                            match event_type {
+                                "assistant" => {
+                                    // Extract text from assistant.message.content[].text
+                                    if let Some(message) = v.get("message") {
+                                        if let Some(content) = message.get("content").and_then(|c| c.as_array()) {
+                                            for item in content {
+                                                if let Some(item_type) = item.get("type").and_then(|t| t.as_str()) {
+                                                    if item_type == "text" {
+                                                        if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
+                                                            text_to_print = Some(text.to_string());
+                                                            break;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                "result" => {
+                                    // Final result event - extract complete text
+                                    if let Some(result) = v.get("result").and_then(|r| r.as_str()) {
+                                        text_to_print = Some(result.to_string());
+                                        saw_final_result = true;
+                                    }
+                                }
+                                "tool_call" => {
+                                    // Optional: could extract tool call info, but skip for now
+                                    continue;
+                                }
+                                _ => {
+                                    // system, user events - skip
+                                    continue;
+                                }
+                            }
+                        } else {
+                            // Fallback: try legacy flat fields for compatibility
+                            text_to_print = v.get("text").and_then(|x| x.as_str()).map(|s| s.to_string())
+                                .or_else(|| v.get("content").and_then(|x| x.as_str()).map(|s| s.to_string()))
+                                .or_else(|| v.get("message").and_then(|x| x.as_str()).map(|s| s.to_string()))
+                                .or_else(|| v.get("delta").and_then(|x| x.as_str()).map(|s| s.to_string()))
+                                .or_else(|| v.get("data").and_then(|x| x.as_str()).map(|s| s.to_string()));
+                        }
+                        
+                        if let Some(text) = text_to_print {
+                            println!("{}", text);
+                            log_ndjson(project, agent_role, provider_key, Some(session_id), "agent", "stdout_line", Some(&text), None, None);
+                            // If we've seen the final result, we can return success immediately
+                            if saw_final_result {
+                                exit_code = Some(0);
+                                break;
+                            }
+                        }
+                    }
+                } else {
+                    println!("{}", line);
+                    log_ndjson(project, agent_role, provider_key, Some(session_id), "agent", "stdout_line", Some(&line), None, None);
+                }
+                if let Some(pb) = pb_opt { pb.tick(); }
+            }
+            Ok(LineEvent::Stderr(line)) => {
+                eprintln!("{}", line);
+                log_ndjson(project, agent_role, provider_key, Some(session_id), "agent", "stderr_line", Some(&line), None, None);
+                if let Some(pb) = pb_opt { pb.tick(); }
+            }
+            Ok(LineEvent::Exit(code)) => { exit_code = Some(code); break; }
+            Err(mpsc::RecvTimeoutError::Timeout) => { return Err("timeout".into()); }
+            Err(_e) => { break; }
+        }
+    }
+    Ok(exit_code.unwrap_or(-1))
+}
+
+fn make_pb() -> ProgressBar {
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(ProgressStyle::with_template("{spinner} sending {msg}").unwrap());
+    pb.enable_steady_tick(Duration::from_millis(120));
+    pb
 }
 
 fn log_ndjson(project: &str, agent_role: &str, provider: &str, session_id: Option<&str>, direction: &str, event: &str, text: Option<&str>, exit_code: Option<i32>, ts_opt: Option<&str>) {
@@ -355,9 +657,29 @@ fn log_ndjson(project: &str, agent_role: &str, provider: &str, session_id: Optio
 
 fn short_id() -> String { format!("{:x}", Instant::now().elapsed().as_nanos()) }
 
-fn run_session_start(project_path: &str, providers_path: &str, agent_name: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let proj_s = fs::read_to_string(project_path)?;
-    let prov_s = fs::read_to_string(providers_path)?;
+fn uuid_v4_like() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let mut s = format!("{:032x}", nanos);
+    // Set version (v4)
+    s.replace_range(12..13, "4");
+    // Set variant (10xx)
+    let variants = ['8','9','a','b'];
+    let idx = (nanos & 0x3) as usize;
+    s.replace_range(16..17, &variants[idx].to_string());
+    format!(
+        "{}-{}-{}-{}-{}",
+        &s[0..8], &s[8..12], &s[12..16], &s[16..20], &s[20..32]
+    )
+}
+
+fn run_session_start(project_path_opt: Option<&str>, providers_path_opt: Option<&str>, agent_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let (project_path, providers_path) = match resolve_config_paths(project_path_opt, providers_path_opt) {
+        Ok(p) => p,
+        Err(msg) => return exit_with(6, msg),
+    };
+    let proj_s = fs::read_to_string(&project_path)?;
+    let prov_s = fs::read_to_string(&providers_path)?;
     let project = parse_project_yaml(&proj_s).map_err(|e| format!("project: {}", e))
         .or_else(|e| exit_with(2, e))?;
     let providers = parse_providers_yaml(&prov_s).map_err(|e| format!("providers: {}", e))
@@ -602,6 +924,9 @@ fn extract_version_line(text: &str) -> Option<String> {
 
 fn run_doctor(format: Format, ndjson_sample: Option<&str>, snapshot_path: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
     let per_timeout = DEFAULT_TIMEOUT_PER_PROVIDER_MS;
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(ProgressStyle::with_template("{spinner} doctor").unwrap());
+    pb.enable_steady_tick(Duration::from_millis(120));
     let _global_timeout = DEFAULT_TIMEOUT_GLOBAL_MS; // reserved for future aggregation
 
     let results = vec![
@@ -681,6 +1006,7 @@ fn run_doctor(format: Format, ndjson_sample: Option<&str>, snapshot_path: Option
 
     match format {
         Format::Text => {
+            pb.finish_and_clear();
             println!("doctor: {}", status_text);
             for r in &results {
                 let ver = r.version.clone().unwrap_or_else(|| "(unknown)".into());
@@ -704,6 +1030,7 @@ fn run_doctor(format: Format, ndjson_sample: Option<&str>, snapshot_path: Option
             }
         }
         Format::Json => {
+            pb.finish_and_clear();
             println!("{}", root_json);
         }
     }
@@ -806,6 +1133,93 @@ fn ndjson_self_check(path: &str) -> Result<Value, String> {
     }))
 }
 
+// ---- config resolution & init ----
+
+/// Resolve config paths from (flags -> env -> defaults)
+/// ENV: MULTI_AGENTS_PROJECT_FILE, MULTI_AGENTS_PROVIDERS_FILE, MULTI_AGENTS_CONFIG_DIR
+fn resolve_config_paths(project_flag: Option<&str>, providers_flag: Option<&str>) -> Result<(String, String), String> {
+    let resolve_one = |kind: &str, flag_opt: Option<&str>| -> Result<String, String> {
+        // 1) explicit flag
+        if let Some(p) = flag_opt { if Path::new(p).exists() { return Ok(p.to_string()); } }
+        // 2) file-by-file env var
+        let env_key = if kind == "project" { "MULTI_AGENTS_PROJECT_FILE" } else { "MULTI_AGENTS_PROVIDERS_FILE" };
+        if let Ok(p) = std::env::var(env_key) { if Path::new(&p).exists() { return Ok(p); } }
+        // 3) config dir env var or default ./config
+        let base = std::env::var("MULTI_AGENTS_CONFIG_DIR").unwrap_or_else(|_| "./config".into());
+        let candidates = if kind == "project" {
+            vec![format!("{}/project.yaml", base), format!("{}/project.yml", base)]
+        } else {
+            vec![format!("{}/providers.yaml", base), format!("{}/providers.yml", base)]
+        };
+        for c in &candidates { if Path::new(c).exists() { return Ok(c.clone()); } }
+        Err(format!(
+            "{} config not found. Provide --{}-file, or set {} / MULTI_AGENTS_CONFIG_DIR. Tried: {}",
+            kind,
+            kind,
+            env_key,
+            candidates.join(", ")
+        ))
+    };
+
+    let pr = resolve_one("project", project_flag)?;
+    let pv = resolve_one("providers", providers_flag)?;
+    Ok((pr, pv))
+}
+
+fn run_config_init(dir_opt: Option<&str>, force: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let base = dir_opt.unwrap_or("./config");
+    let _ = std::fs::create_dir_all(base);
+    let proj_path = format!("{}/project.yaml", base);
+    let prov_path = format!("{}/providers.yaml", base);
+
+    let project_yaml = r#"schema_version: 1
+project: demo
+agents:
+  - name: backend
+    role: backend
+    provider: claude
+    model: fill-me
+    allowed_tools: [Edit]
+    system_prompt: |
+      You are a backend agent.
+"#;
+
+    let providers_yaml = r#"schema_version: 1
+providers:
+  claude:
+    cmd: "claude"
+    oneshot_args: ["-p","--print","--output-format","text","{prompt}","--session-id","{session_id}","--allowed-tools","{allowed_tools}","--permission-mode","plan"]
+    repl_args: ["repl"]
+    allowlist_flag: "--allowed-tools"
+  cursor-agent:
+    cmd: "cursor-agent"
+    oneshot_args: ["-p","--output-format","text","--resume","{chat_id}","{prompt}"]
+    repl_args: ["agent","--resume","{chat_id}"]
+    create_chat_args: ["create-chat"]
+    forbid_flags: ["--force"]
+  gemini:
+    cmd: "gemini"
+    oneshot_args: ["{prompt}"]
+    repl_args: ["-i","{system_prompt}","--allowed-tools","{allowed_tools}"]
+    allowlist_flag: "--allowed-tools"
+"#;
+
+    let write_file = |path: &str, contents: &str| -> Result<(), Box<dyn std::error::Error>> {
+        if Path::new(path).exists() && !force {
+            println!("SKIP: {} exists (use --force to overwrite)", path);
+            return Ok(());
+        }
+        std::fs::write(path, contents)?;
+        println!("WROTE: {}", path);
+        Ok(())
+    };
+
+    write_file(&proj_path, project_yaml)?;
+    write_file(&prov_path, providers_yaml)?;
+    println!("OK: config initialized under {}", base);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -897,5 +1311,25 @@ mod tests {
         run_project_add("demo", Some(&dbs)).expect("project add");
         // agent add
         run_agent_add("demo", "backend", "backend", "gemini", "g-1.5", &vec!["Edit".into()], "sp", Some(&dbs)).expect("agent add");
+    }
+
+    #[test]
+    fn resolve_defaults_with_env_dir() {
+        // Prepare temp config dir
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        let cfg_dir = dir.join("config");
+        std::fs::create_dir_all(&cfg_dir).unwrap();
+        let project_p = cfg_dir.join("project.yaml");
+        let providers_p = cfg_dir.join("providers.yaml");
+        std::fs::write(&project_p, "schema_version: 1\nproject: demo\nagents: []\n").unwrap();
+        std::fs::write(&providers_p, "schema_version: 1\nproviders: {}\n").unwrap();
+
+        // Point resolution to this temp dir
+        std::env::set_var("MULTI_AGENTS_CONFIG_DIR", cfg_dir.to_string_lossy().to_string());
+        let (pr, pv) = resolve_config_paths(None, None).expect("resolve");
+        assert_eq!(std::path::Path::new(&pr), project_p);
+        assert_eq!(std::path::Path::new(&pv), providers_p);
+        std::env::remove_var("MULTI_AGENTS_CONFIG_DIR");
     }
 }

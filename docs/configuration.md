@@ -5,6 +5,17 @@ Files
 - `providers.yaml`: per-provider command templates and flags.
 - `.env`: optional secrets if CLIs require them.
 
+Default locations and resolution
+- Priority: CLI flags > ENV > defaults.
+- ENV:
+  - `MULTI_AGENTS_PROJECT_FILE`, `MULTI_AGENTS_PROVIDERS_FILE` point to explicit files.
+  - `MULTI_AGENTS_CONFIG_DIR` points to a directory containing `project.(yaml|yml)` and `providers.(yaml|yml)`.
+- Defaults (if nothing provided): `./config/project.yaml|yml`, `./config/providers.yaml|yml`.
+- If no resolvable file is found: exit 6 (config missing).
+
+Bootstrap
+- `multi-agents config init [--dir <path>] [--force]` scaffolds minimal `project.yaml` and `providers.yaml` under the target directory (default `./config`). Existing files are not overwritten unless `--force`.
+
 project.yaml (minimal example)
 ```yaml
 project: demo-app

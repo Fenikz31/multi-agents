@@ -15,7 +15,13 @@ Commands
   - Optional: `--ndjson-sample` runs a NDJSON self-check (one JSON per line, UTF‑8, no ANSI, required fields).
   - Exit codes: 0 OK; 1 degraded (flags manquants); 2 NDJSON invalide; 3 providers manquants; 5 timeout.
   - Optional: `--snapshot <path>` writes the full JSON report to a file (directories created if needed)
-- `multi-agents config validate --project-file <path> --providers-file <path>`
+  - Shows a progress spinner during checks.
+- `multi-agents config validate [--project-file <path>] [--providers-file <path>]`
+  - Path resolution (priority): flags > ENV (`MULTI_AGENTS_PROJECT_FILE`, `MULTI_AGENTS_PROVIDERS_FILE`, `MULTI_AGENTS_CONFIG_DIR`) > defaults (`./config/project.(yaml|yml)`, `./config/providers.(yaml|yml)`).
+  - Missing resolved file(s) → exit 6 (config missing).
+- `multi-agents config init [--dir <path>] [--force]`
+  - Scaffold minimal `project.yaml` and `providers.yaml` (default dir `./config`).
+  - Won't overwrite existing files unless `--force`.
 - `multi-agents db init`
   - Initialize SQLite database (idempotent). Exit codes: 0 OK; 7 db_error.
 - `multi-agents project add --name <name>`
@@ -24,8 +30,11 @@ Commands
 - `multi-agents session start --project <name> --agent <name>` → prints `conversation_id=<id>`
 - `multi-agents session list --project <name>`
 - `multi-agents session resume --conversation-id <id>`
-- `multi-agents send --conversation-id <id> --message "..."`
-- `multi-agents send --to @role|@all --message "..."`
+- `multi-agents send [--project-file <path>] [--providers-file <path>] --to @role|@all|<agent> --message "..." [--timeout-ms <millis>] [--format text|json]`
+  - Uses same path resolution as `config validate`. Missing → exit 6.
+  - Optional: `--timeout-ms` overrides 120s default; `--format json` prints a minimal JSON status.
+  - Shows a progress spinner by default; disable with `--no-progress`.
+  - **Cursor headless**: automatically uses `--output-format stream-json` and parses `assistant.message.content[].text` deltas plus final `result` event for clean termination.
 - `multi-agents agent run|attach|stop --project <name> --agent <name>`
 - `multi-agents broadcast --project <name> --message "..." --mode oneshot|repl`
 - `multi-agents tui --project <name>`
