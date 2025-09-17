@@ -9,7 +9,7 @@ providers:
     cmd: "cursor-agent"
     oneshot_args: ["-p","--output-format","text","--resume","{chat_id}","{prompt}"]
     repl_args: ["agent","--resume","{chat_id}"]
-    create_chat_args: ["create-chat","--title","{system_prompt}"]
+    create_chat_args: ["create-chat"]
     forbid_flags: ["--force"]
   gemini:
     cmd: "gemini"
