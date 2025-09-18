@@ -362,6 +362,72 @@ fn run_send(project_path_opt: Option<&str>, providers_path_opt: Option<&str>, to
         return exit_with(2, format!("send: no targets matched '{}'", to)); 
     }
 
+    // M3-08: Auto-create session if conversation_id is absent, and fallback if status expired/invalid
+    // Determine project_id once
+    let project_id = match find_project_id(&conn, IdOrName::Name(&project.project))? {
+        Some(pid) => pid,
+        None => return exit_with(2, format!("Project not found: {}", project.project)),
+    };
+    for (i, agent) in targets.iter().enumerate() {
+        // If a session was provided, ensure it's active; else create one
+        if let Some(conv_id) = &session_contexts[i] {
+            if let Some(existing) = db::find_session(&conn, conv_id)? {
+                // If not active, create a fresh session
+                if existing.status.to_string() != SessionStatus::Active.to_string() {
+                    // Lookup agent_id
+                    let agent_id: String = conn.query_row(
+                        "SELECT id FROM agents WHERE project_id = ?1 AND name = ?2",
+                        params![&project_id, &agent.name],
+                        |row| Ok(row.get::<_, String>(0)?)
+                    )?;
+                    // Create manager per provider
+                    let conn_for_mgr = open_or_create_db(&db_path)?;
+                    let manager: Box<dyn SessionManager> = match agent.provider.as_str() {
+                        "claude" => Box::new(ClaudeSessionManager::new(conn_for_mgr)),
+                        "cursor-agent" => Box::new(CursorSessionManager::new(open_or_create_db(&db_path)?)),
+                        "gemini" => Box::new(GeminiSessionManager::new(open_or_create_db(&db_path)?)),
+                        _ => return exit_with(2, format!("Unsupported provider: {}", agent.provider)),
+                    };
+                    let new_session = manager.create_session(&project_id, &agent_id, &agent.provider, None)
+                        .map_err(|e| format!("Failed to create session: {}", e))?;
+                    session_contexts[i] = Some(new_session.id);
+                }
+            } else {
+                // Provided id not found -> create new
+                let agent_id: String = conn.query_row(
+                    "SELECT id FROM agents WHERE project_id = ?1 AND name = ?2",
+                    params![&project_id, &agent.name],
+                    |row| Ok(row.get::<_, String>(0)?)
+                )?;
+                let manager: Box<dyn SessionManager> = match agent.provider.as_str() {
+                    "claude" => Box::new(ClaudeSessionManager::new(open_or_create_db(&db_path)?)),
+                    "cursor-agent" => Box::new(CursorSessionManager::new(open_or_create_db(&db_path)?)),
+                    "gemini" => Box::new(GeminiSessionManager::new(open_or_create_db(&db_path)?)),
+                    _ => return exit_with(2, format!("Unsupported provider: {}", agent.provider)),
+                };
+                let new_session = manager.create_session(&project_id, &agent_id, &agent.provider, None)
+                    .map_err(|e| format!("Failed to create session: {}", e))?;
+                session_contexts[i] = Some(new_session.id);
+            }
+        } else {
+            // No session provided -> create one now
+            let agent_id: String = conn.query_row(
+                "SELECT id FROM agents WHERE project_id = ?1 AND name = ?2",
+                params![&project_id, &agent.name],
+                |row| Ok(row.get::<_, String>(0)?)
+            )?;
+            let manager: Box<dyn SessionManager> = match agent.provider.as_str() {
+                "claude" => Box::new(ClaudeSessionManager::new(open_or_create_db(&db_path)?)),
+                "cursor-agent" => Box::new(CursorSessionManager::new(open_or_create_db(&db_path)?)),
+                "gemini" => Box::new(GeminiSessionManager::new(open_or_create_db(&db_path)?)),
+                _ => return exit_with(2, format!("Unsupported provider: {}", agent.provider)),
+            };
+            let new_session = manager.create_session(&project_id, &agent_id, &agent.provider, None)
+                .map_err(|e| format!("Failed to create session: {}", e))?;
+            session_contexts[i] = Some(new_session.id);
+        }
+    }
+
     // Execute with bounded concurrency
     let mut handles: Vec<std::thread::JoinHandle<i32>> = Vec::new();
     let mut results: Vec<i32> = Vec::new();
@@ -552,6 +618,13 @@ fn run_oneshot_provider(
                 "UPDATE sessions SET last_activity = ?1 WHERE id = ?2",
                 params![&now, conv_id]
             );
+            // M3-08: Save provider_session_id best-effort
+            if !final_session_id.is_empty() {
+                let _ = conn.execute(
+                    "UPDATE sessions SET provider_session_id = ?1 WHERE id = ?2",
+                    params![&final_session_id, conv_id]
+                );
+            }
         }
     }
 
