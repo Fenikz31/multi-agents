@@ -1,0 +1,157 @@
+---
+alwaysApply: true
+description: Templates de MR et gestion des issues avec fermeture automatique
+---
+
+# Templates de MR et Gestion des Issues
+
+## Template Obligatoire pour les MR
+
+### Structure Standard
+```markdown
+## Description
+[Description complète de la fonctionnalité/correction]
+
+## Changes
+- ✅ [Changement 1]
+- ✅ [Changement 2]
+- ✅ [Changement 3]
+
+## Testing
+- ✅ [Test 1 effectué]
+- ✅ [Test 2 effectué]
+- ✅ [Test 3 effectué]
+
+## Acceptance Criteria
+- [x] [Critère 1 respecté]
+- [x] [Critère 2 respecté]
+- [x] [Critère 3 respecté]
+
+Closes #XX
+```
+
+### Labels Obligatoires
+- `milestone::M4` (ou version appropriée)
+- `area::[area]` (cli, backend, frontend, docs, etc.)
+- `type::[type]` (feat, fix, refactor, docs, test, etc.)
+- `priority::[priority]` (low, medium, high, critical)
+
+## Gestion des Issues
+
+### Fermeture Automatique
+**TOUJOURS** inclure `Closes #XX` dans :
+1. Le titre de la MR : `"feat: description - Closes #XX"`
+2. La description de la MR
+3. Le message de commit final
+
+### Vérification des Issues
+Avant de commencer l'implémentation :
+1. Récupérer l'issue avec `glab issue view #XX`
+2. Vérifier les critères d'acceptation
+3. Comprendre le contexte et les exigences
+4. Intégrer les détails dans la planification
+
+### Exemples de Titres de MR
+
+```bash
+# Fonctionnalité
+"feat: implement agent commands (run|attach|stop) for M4 tmux REPL - Closes #31"
+
+# Correction de bug
+"fix: resolve merge conflict in doctor command provider detection - Closes #42"
+
+# Refactoring
+"refactor: extract tmux session management into dedicated module - Closes #55"
+
+# Documentation
+"docs: update CLI reference with new agent commands - Closes #67"
+
+# Tests
+"test: add integration tests for tmux agent lifecycle - Closes #78"
+```
+
+## Commandes GitLab Obligatoires
+
+### Création de MR
+```bash
+glab mr create \
+  --title "feat: [description] - Closes #XX" \
+  --description "[template complet]" \
+  --assignee fenikz \
+  --label "milestone::M4,area::[area],type::[type],priority::[priority]"
+```
+
+### Vérification d'Issue
+```bash
+# Voir l'issue
+glab issue view #XX
+
+# Lister les issues d'un milestone
+glab issue list --milestone "M4"
+
+# Voir les issues assignées
+glab issue list --assignee fenikz
+```
+
+## Workflow de Validation
+
+### Avant de Créer la MR
+1. [ ] Tous les tests passent
+2. [ ] Lints passent
+3. [ ] Documentation mise à jour
+4. [ ] Critères d'acceptation respectés
+5. [ ] Issue #XX comprise et implémentée
+6. [ ] Branche feature créée AVANT l'implémentation
+
+### Après Création de la MR
+1. [ ] MR créée avec le bon template
+2. [ ] Labels appropriés ajoutés
+3. [ ] Assignée à fenikz
+4. [ ] `Closes #XX` dans titre et description
+5. [ ] Pipeline CI/CD en cours d'exécution
+
+## Exemples Complets
+
+### MR pour Issue #31 (Agent Commands)
+```bash
+glab mr create \
+  --title "feat: implement agent commands (run|attach|stop) for M4 tmux REPL - Closes #31" \
+  --description "## Description
+
+Implements issue #31: CLI agent run|attach|stop commands for M4 tmux REPL functionality.
+
+## Changes
+- ✅ Add AgentCmd enum with Run, Attach, Stop subcommands
+- ✅ Implement run_agent_run: create tmux session/window, start provider REPL, setup logging
+- ✅ Implement run_agent_attach: attach to existing tmux session  
+- ✅ Implement run_agent_stop: stop agent tmux window (idempotent)
+- ✅ Support all required flags: --project, --agent, --role, --provider, --model, --workdir, --no-logs, --timeout-ms
+- ✅ Follow tmux conventions: session 'proj:{project}', window '{role}:{agent}'
+- ✅ Timeout 5s per action, exit codes 0/2/5/8 according to spec
+- ✅ NDJSON logging to ./logs/{project}/{role}.ndjson
+- ✅ Idempotent operations: no duplicates on rerun
+- ✅ Unit tests for CLI parsing and error cases
+
+## Testing
+- ✅ All unit tests pass
+- ✅ CLI help generation works correctly
+- ✅ Command parsing validates all flags
+- ✅ Error cases handled appropriately
+
+## Acceptance Criteria
+- [x] CLI agent run|attach|stop available and documented
+- [x] ≤5s/action; idempotence; --help clear
+- [x] Flags: --project, --agent, --role?, --provider?, --model?, --workdir?, --no-logs, --timeout-ms
+- [x] Exit codes: 0/2/5/8
+- [x] Examples and error messages
+
+Closes #31" \
+  --assignee fenikz \
+  --label "milestone::M4,area::cli,type::feat,priority::high"
+```
+
+## Références
+
+- GitLab CLI: [docs/cli-reference.md](mdc:docs/cli-reference.md)
+- Workflow: [docs/workflows.md](mdc:docs/workflows.md)
+- Issues M4: Issues #31-40 dans le projet
