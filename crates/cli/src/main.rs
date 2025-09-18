@@ -1728,6 +1728,117 @@ fn run_session_cleanup(_project_path_opt: Option<&str>, dry_run: bool, format: F
 
 // ---- agent tmux implementation ----
 
+// NDJSON Event structures
+#[derive(Debug, Clone, serde::Serialize)]
+struct NdjsonEvent {
+    ts: String,
+    level: String,
+    project_id: String,
+    agent_role: String,
+    agent_id: String,
+    provider: String,
+    event: String,
+    text: Option<String>,
+    dur_ms: Option<u64>,
+    broadcast_id: Option<String>,
+    session_id: Option<String>,
+}
+
+impl NdjsonEvent {
+    fn new_start(project_id: &str, agent_role: &str, agent_id: &str, provider: &str) -> Self {
+        Self {
+            ts: chrono::Utc::now().to_rfc3339(),
+            level: "info".to_string(),
+            project_id: project_id.to_string(),
+            agent_role: agent_role.to_string(),
+            agent_id: agent_id.to_string(),
+            provider: provider.to_string(),
+            event: "start".to_string(),
+            text: None,
+            dur_ms: None,
+            broadcast_id: None,
+            session_id: None,
+        }
+    }
+
+    fn new_stdout_line(project_id: &str, agent_role: &str, agent_id: &str, provider: &str, text: &str) -> Self {
+        // Remove ANSI escape sequences from text
+        let clean_text = remove_ansi_escape_sequences(text);
+        
+        Self {
+            ts: chrono::Utc::now().to_rfc3339(),
+            level: "info".to_string(),
+            project_id: project_id.to_string(),
+            agent_role: agent_role.to_string(),
+            agent_id: agent_id.to_string(),
+            provider: provider.to_string(),
+            event: "stdout_line".to_string(),
+            text: Some(clean_text),
+            dur_ms: None,
+            broadcast_id: None,
+            session_id: None,
+        }
+    }
+
+    fn new_end(project_id: &str, agent_role: &str, agent_id: &str, provider: &str, dur_ms: u64, status: &str) -> Self {
+        Self {
+            ts: chrono::Utc::now().to_rfc3339(),
+            level: "info".to_string(),
+            project_id: project_id.to_string(),
+            agent_role: agent_role.to_string(),
+            agent_id: agent_id.to_string(),
+            provider: provider.to_string(),
+            event: "end".to_string(),
+            text: Some(status.to_string()),
+            dur_ms: Some(dur_ms),
+            broadcast_id: None,
+            session_id: None,
+        }
+    }
+}
+
+/// Remove ANSI escape sequences from text
+fn remove_ansi_escape_sequences(text: &str) -> String {
+    // Simple regex to remove ANSI escape sequences
+    // This handles most common ANSI codes like \x1b[31m, \x1b[0m, etc.
+    text.chars()
+        .filter(|&c| c != '\x1b')
+        .collect::<String>()
+        .split('\x1b')
+        .map(|s| {
+            // Remove everything from [ to the first letter after it
+            if let Some(bracket_pos) = s.find('[') {
+                if let Some(end_pos) = s[bracket_pos..].find(|c: char| c.is_alphabetic()) {
+                    &s[end_pos + bracket_pos + 1..]
+                } else {
+                    s
+                }
+            } else {
+                s
+            }
+        })
+        .collect::<Vec<&str>>()
+        .join("")
+}
+
+/// Write NDJSON event to log file
+fn write_ndjson_event(log_file: &str, event: &NdjsonEvent) -> Result<(), Box<dyn std::error::Error>> {
+    // Ensure directory exists
+    if let Some(parent) = std::path::Path::new(log_file).parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    
+    // Write event as single line JSON
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_file)?;
+    
+    use std::io::Write;
+    writeln!(file, "{}", serde_json::to_string(event)?)?;
+    Ok(())
+}
+
 // Retry configuration for tmux operations
 const TMUX_RETRY_ATTEMPTS: u32 = 3;
 const TMUX_RETRY_DELAY_MS: u64 = 100;
@@ -1779,53 +1890,25 @@ fn is_race_condition(error: &str) -> bool {
     race_indicators.iter().any(|&indicator| error.to_lowercase().contains(indicator))
 }
 
-/// Emit NDJSON start event for agent
+/// Emit NDJSON start event for agent (contract compliant)
 fn emit_start_event(project_name: &str, role: &str, agent_name: &str, provider: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let log_dir = format!("./logs/{}", project_name);
-    let _ = fs::create_dir_all(&log_dir);
-    let log_file = format!("{}/{}.ndjson", log_dir, role);
-    
-    let start_event = serde_json::json!({
-        "ts": chrono::Utc::now().to_rfc3339(),
-        "event": "start",
-        "agent": agent_name,
-        "role": role,
-        "provider": provider,
-        "project": project_name
-    });
-    
-    let mut file = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&log_file)?;
-    
-    use std::io::Write;
-    writeln!(file, "{}", start_event)?;
-    Ok(())
+    let log_file = format!("./logs/{}/{}.ndjson", project_name, role);
+    let event = NdjsonEvent::new_start(project_name, role, agent_name, provider);
+    write_ndjson_event(&log_file, &event)
 }
 
-/// Emit NDJSON end event for agent
-fn emit_end_event(project_name: &str, role: &str, agent_name: &str, status: &str, duration_ms: u64) -> Result<(), Box<dyn std::error::Error>> {
-    let log_dir = format!("./logs/{}", project_name);
-    let log_file = format!("{}/{}.ndjson", log_dir, role);
-    
-    let end_event = serde_json::json!({
-        "ts": chrono::Utc::now().to_rfc3339(),
-        "event": "end",
-        "agent": agent_name,
-        "role": role,
-        "status": status,
-        "dur_ms": duration_ms
-    });
-    
-    let mut file = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&log_file)?;
-    
-    use std::io::Write;
-    writeln!(file, "{}", end_event)?;
-    Ok(())
+/// Emit NDJSON end event for agent (contract compliant)
+fn emit_end_event(project_name: &str, role: &str, agent_name: &str, provider: &str, status: &str, duration_ms: u64) -> Result<(), Box<dyn std::error::Error>> {
+    let log_file = format!("./logs/{}/{}.ndjson", project_name, role);
+    let event = NdjsonEvent::new_end(project_name, role, agent_name, provider, duration_ms, status);
+    write_ndjson_event(&log_file, &event)
+}
+
+/// Emit NDJSON stdout_line event for agent (contract compliant)
+fn emit_stdout_line_event(project_name: &str, role: &str, agent_name: &str, provider: &str, text: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let log_file = format!("./logs/{}/{}.ndjson", project_name, role);
+    let event = NdjsonEvent::new_stdout_line(project_name, role, agent_name, provider, text);
+    write_ndjson_event(&log_file, &event)
 }
 
 fn run_agent_run(
@@ -2110,7 +2193,7 @@ fn run_agent_stop(
     
     // Emit end event before stopping
     let duration_ms = start_time.elapsed().as_millis() as u64;
-    if let Err(e) = emit_end_event(project_name, &agent.role, agent_name, "stopped", duration_ms) {
+    if let Err(e) = emit_end_event(project_name, &agent.role, agent_name, &agent.provider, "stopped", duration_ms) {
         eprintln!("Warning: Failed to emit end event: {}", e);
     }
     
@@ -2562,7 +2645,7 @@ mod tests {
             ("prod", "devops", "devops-agent", "cursor-agent")
         ];
         
-        for (project, role, agent, provider) in test_cases {
+        for (project, _role, _agent, _provider) in test_cases {
             // Test that start event contains all required fields
             let required_fields = vec![
                 "ts", "level", "project_id", "agent_role", "agent_id", 
@@ -2587,7 +2670,7 @@ mod tests {
             ("prod", "devops", "devops-agent", "Deployment completed")
         ];
         
-        for (project, role, agent, text) in test_cases {
+        for (project, _role, _agent, text) in test_cases {
             // Test that stdout_line event contains all required fields
             let required_fields = vec![
                 "ts", "level", "project_id", "agent_role", "agent_id", 
@@ -2616,7 +2699,7 @@ mod tests {
             ("prod", "devops", "devops-agent", "timeout", 5000)
         ];
         
-        for (project, role, agent, status, dur_ms) in test_cases {
+        for (project, _role, _agent, _status, dur_ms) in test_cases {
             // Test that end event contains all required fields
             let required_fields = vec![
                 "ts", "level", "project_id", "agent_role", "agent_id", 
@@ -2690,7 +2773,7 @@ mod tests {
     fn ndjson_contract_append_only() {
         // Test NDJSON append-only behavior
         let log_dir = "./logs/test-project";
-        let log_file = format!("{}/backend.ndjson", log_dir);
+        let _log_file = format!("{}/backend.ndjson", log_dir);
         
         // Test that files are created with append mode
         let _ = std::fs::create_dir_all(log_dir);
