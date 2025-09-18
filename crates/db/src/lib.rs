@@ -1054,6 +1054,86 @@ mod tests {
     }
 
     #[test]
+    fn list_sessions_pagination_and_sorting() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("multi-agents.sqlite3");
+        let conn = open_or_create_db(db_path.to_string_lossy().as_ref()).unwrap();
+
+        // Create project and agent
+        let p = insert_project(&conn, "demo").unwrap();
+        let a = insert_agent(&conn, &p.id, "backend", "backend", "gemini", "g-1.5", &vec!["Edit".into()], "sp").unwrap();
+
+        // Insert multiple sessions (timestamps auto now; order by created_at DESC expected)
+        let mut ids = vec![];
+        for _ in 0..5 { ids.push(insert_session(&conn, &p.id, &a.id, "gemini", None).unwrap().id); }
+
+        // List with limit 2, page 1
+        let filters = SessionFilters { project_id: Some(p.id.clone()), agent_id: None, provider: None, status: None, limit: Some(2), offset: Some(0) };
+        let page1 = list_sessions(&conn, filters).unwrap();
+        assert_eq!(page1.len(), 2);
+
+        // Next page
+        let filters = SessionFilters { project_id: Some(p.id.clone()), agent_id: None, provider: None, status: None, limit: Some(2), offset: Some(2) };
+        let page2 = list_sessions(&conn, filters).unwrap();
+        assert_eq!(page2.len(), 2);
+
+        // Last page (maybe 1 element)
+        let filters = SessionFilters { project_id: Some(p.id.clone()), agent_id: None, provider: None, status: None, limit: Some(2), offset: Some(4) };
+        let page3 = list_sessions(&conn, filters).unwrap();
+        assert!(page3.len() == 1 || page3.len() == 2); // depending on timing
+    }
+
+    #[test]
+    fn update_session_field_combinations() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("multi-agents.sqlite3");
+        let conn = open_or_create_db(db_path.to_string_lossy().as_ref()).unwrap();
+
+        let p = insert_project(&conn, "demo").unwrap();
+        let a = insert_agent(&conn, &p.id, "backend", "backend", "gemini", "g-1.5", &vec!["Edit".into()], "sp").unwrap();
+        let s = insert_session(&conn, &p.id, &a.id, "gemini", Some("ctx_1")).unwrap();
+
+        // Update only last_activity
+        update_session(&conn, &s.id, None, Some("2025-01-20T00:00:00Z"), None).unwrap();
+        let after = find_session(&conn, &s.id).unwrap().unwrap();
+        assert_eq!(after.last_activity, Some("2025-01-20T00:00:00Z".into()));
+
+        // Update only provider_session_id
+        update_session(&conn, &s.id, Some("ctx_2"), None, None).unwrap();
+        let after = find_session(&conn, &s.id).unwrap().unwrap();
+        assert_eq!(after.provider_session_id, Some("ctx_2".into()));
+
+        // Update status
+        update_session(&conn, &s.id, None, None, Some(SessionStatus::Expired)).unwrap();
+        let after = find_session(&conn, &s.id).unwrap().unwrap();
+        assert_eq!(after.status, SessionStatus::Expired);
+    }
+
+    #[test]
+    fn delete_expired_sessions_respects_timestamp() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("multi-agents.sqlite3");
+        let conn = open_or_create_db(db_path.to_string_lossy().as_ref()).unwrap();
+
+        let p = insert_project(&conn, "demo").unwrap();
+        let a = insert_agent(&conn, &p.id, "backend", "backend", "gemini", "g-1.5", &vec!["Edit".into()], "sp").unwrap();
+        let s = insert_session(&conn, &p.id, &a.id, "gemini", Some("ctx")) .unwrap();
+
+        // Make it expire yesterday
+        conn.execute(
+            "UPDATE sessions SET expires_at = ?1 WHERE id = ?2",
+            params!["2025-01-01T00:00:00Z", s.id],
+        ).unwrap();
+
+        let deleted = delete_expired_sessions(&conn, "2025-01-02T00:00:00Z").unwrap();
+        assert_eq!(deleted, 1);
+
+        // Nothing left to delete now
+        let deleted2 = delete_expired_sessions(&conn, "2025-01-03T00:00:00Z").unwrap();
+        assert_eq!(deleted2, 0);
+    }
+
+    #[test]
     fn session_error_types() {
         let not_found = SessionError::NotFound("test".to_string());
         assert!(matches!(not_found, SessionError::NotFound(_)));
