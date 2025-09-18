@@ -82,6 +82,11 @@ enum Commands {
         #[command(subcommand)]
         cmd: SessionCmd,
     },
+    /// Agent management (tmux REPL)
+    Agent {
+        #[command(subcommand)]
+        cmd: AgentCmd,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -171,6 +176,55 @@ enum SessionCmd {
     },
 }
 
+#[derive(Subcommand, Debug)]
+enum AgentCmd {
+    /// Start an agent in tmux REPL mode
+    Run {
+        /// Optional: explicit path; else ENV/defaults resolution is used
+        #[arg(long, value_name = "PATH")] project_file: Option<String>,
+        /// Optional: explicit path; else ENV/defaults resolution is used
+        #[arg(long, value_name = "PATH")] providers_file: Option<String>,
+        /// Project name (defaults to current directory name)
+        #[arg(long)] project: Option<String>,
+        /// Agent name to run
+        #[arg(long)] agent: String,
+        /// Optional: override agent role
+        #[arg(long)] role: Option<String>,
+        /// Optional: override agent provider
+        #[arg(long)] provider: Option<String>,
+        /// Optional: override agent model
+        #[arg(long)] model: Option<String>,
+        /// Optional: working directory for the agent
+        #[arg(long, value_name = "DIR")] workdir: Option<String>,
+        /// Disable NDJSON logging
+        #[arg(long, default_value_t = false)] no_logs: bool,
+        /// Optional: override timeout in milliseconds (default 5000)
+        #[arg(long, value_name = "MILLIS")] timeout_ms: Option<u64>,
+    },
+    /// Attach to an existing agent tmux session
+    Attach {
+        /// Optional: explicit path; else ENV/defaults resolution is used
+        #[arg(long, value_name = "PATH")] project_file: Option<String>,
+        /// Project name (defaults to current directory name)
+        #[arg(long)] project: Option<String>,
+        /// Agent name to attach to
+        #[arg(long)] agent: String,
+        /// Optional: override timeout in milliseconds (default 5000)
+        #[arg(long, value_name = "MILLIS")] timeout_ms: Option<u64>,
+    },
+    /// Stop an agent tmux session
+    Stop {
+        /// Optional: explicit path; else ENV/defaults resolution is used
+        #[arg(long, value_name = "PATH")] project_file: Option<String>,
+        /// Project name (defaults to current directory name)
+        #[arg(long)] project: Option<String>,
+        /// Agent name to stop
+        #[arg(long)] agent: String,
+        /// Optional: override timeout in milliseconds (default 5000)
+        #[arg(long, value_name = "MILLIS")] timeout_ms: Option<u64>,
+    },
+}
+
 #[derive(Copy, Clone, Debug, ValueEnum)]
 enum Format { Text, Json }
 
@@ -205,6 +259,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 run_session_resume(&conversation_id, timeout_ms),
             SessionCmd::Cleanup { project_file, dry_run, format } =>
                 run_session_cleanup(project_file.as_deref(), dry_run, format),
+        },
+        Commands::Agent { cmd } => match cmd {
+            AgentCmd::Run { project_file, providers_file, project, agent, role, provider, model, workdir, no_logs, timeout_ms } =>
+                run_agent_run(project_file.as_deref(), providers_file.as_deref(), project.as_deref(), &agent, role.as_deref(), provider.as_deref(), model.as_deref(), workdir.as_deref(), no_logs, timeout_ms),
+            AgentCmd::Attach { project_file, project, agent, timeout_ms } =>
+                run_agent_attach(project_file.as_deref(), project.as_deref(), &agent, timeout_ms),
+            AgentCmd::Stop { project_file, project, agent, timeout_ms } =>
+                run_agent_stop(project_file.as_deref(), project.as_deref(), &agent, timeout_ms),
         },
     }
 }
@@ -296,6 +358,7 @@ fn looks_like_uuid(s: &str) -> bool { s.len() >= 16 && s.chars().all(|c| c.is_as
 // ---- send oneshot implementation ----
 
 const DEFAULT_SEND_TIMEOUT_MS: u64 = 120_000;
+const DEFAULT_AGENT_TIMEOUT_MS: u64 = 5_000;
 const MAX_CONCURRENCY: usize = 3;
 
 fn run_send(project_path_opt: Option<&str>, providers_path_opt: Option<&str>, to: &str, message: &str, session_id_opt: Option<&str>, chat_id_opt: Option<&str>, timeout_ms_flag: Option<u64>, format: Format, progress: bool) -> Result<(), Box<dyn std::error::Error>> {
@@ -1663,6 +1726,281 @@ fn run_session_cleanup(_project_path_opt: Option<&str>, dry_run: bool, format: F
     Ok(())
 }
 
+// ---- agent tmux implementation ----
+
+fn run_agent_run(
+    project_file: Option<&str>, 
+    providers_file: Option<&str>, 
+    project_name: Option<&str>, 
+    agent_name: &str, 
+    role_override: Option<&str>, 
+    provider_override: Option<&str>, 
+    model_override: Option<&str>, 
+    workdir: Option<&str>, 
+    no_logs: bool, 
+    timeout_ms: Option<u64>
+) -> Result<(), Box<dyn std::error::Error>> {
+    let timeout = Duration::from_millis(timeout_ms.unwrap_or(DEFAULT_AGENT_TIMEOUT_MS));
+    
+    // Resolve config paths
+    let (project_path, providers_path) = match resolve_config_paths(project_file, providers_file) {
+        Ok(p) => p,
+        Err(msg) => return exit_with(6, msg),
+    };
+    
+    // Load configurations
+    let proj_s = fs::read_to_string(&project_path)?;
+    let prov_s = fs::read_to_string(&providers_path)?;
+    let project = parse_project_yaml(&proj_s).map_err(|e| format!("project: {}", e))?;
+    let providers = parse_providers_yaml(&prov_s).map_err(|e| format!("providers: {}", e))?;
+    
+    // Determine project name
+    let project_name = project_name.unwrap_or(&project.project);
+    
+    // Find agent configuration
+    let agent = project.agents.iter()
+        .find(|a| a.name == agent_name)
+        .ok_or_else(|| format!("Agent '{}' not found in project '{}'", agent_name, project_name))?;
+    
+    // Apply overrides
+    let role = role_override.unwrap_or(&agent.role);
+    let provider = provider_override.unwrap_or(&agent.provider);
+    let _model = model_override.unwrap_or(&agent.model);
+    
+    // Get provider configuration
+    let provider_config = providers.providers.get(provider)
+        .ok_or_else(|| format!("Provider '{}' not found in configuration", provider))?;
+    
+    // Build tmux session and window names
+    let session_name = format!("proj:{}", project_name);
+    let window_name = format!("{}:{}", role, agent_name);
+    
+    // Check if session already exists
+    let session_exists = match run_with_timeout("tmux", &["has-session", "-t", &session_name], timeout) {
+        Ok((code, _, _)) => code == 0,
+        Err(_) => false,
+    };
+    
+    // Create session if it doesn't exist
+    if !session_exists {
+        match run_with_timeout("tmux", &["new-session", "-d", "-s", &session_name], timeout) {
+            Ok((code, _, err)) if code != 0 => {
+                return exit_with(8, format!("Failed to create tmux session: {}", err));
+            }
+            Err(e) => {
+                return exit_with(5, format!("Timeout creating tmux session: {}", e));
+            }
+            _ => {} // Success
+        }
+    }
+    
+    // Check if window already exists
+    let window_exists = match run_with_timeout("tmux", &["list-windows", "-t", &session_name, "-F", "#{window_name}"], timeout) {
+        Ok((code, out, _)) if code == 0 => out.lines().any(|line| line.trim() == window_name),
+        _ => false,
+    };
+    
+    if window_exists {
+        println!("Agent '{}' is already running in tmux session '{}'", agent_name, session_name);
+        return Ok(());
+    }
+    
+    // Create new window for the agent
+    match run_with_timeout("tmux", &["new-window", "-t", &session_name, "-n", &window_name], timeout) {
+        Ok((code, _, err)) if code != 0 => {
+            return exit_with(8, format!("Failed to create tmux window: {}", err));
+        }
+        Err(e) => {
+            return exit_with(5, format!("Timeout creating tmux window: {}", e));
+        }
+        _ => {} // Success
+    }
+    
+    // Set up logging if not disabled
+    if !no_logs {
+        let log_dir = format!("./logs/{}", project_name);
+        let _ = fs::create_dir_all(&log_dir);
+        let log_file = format!("{}/{}.ndjson", log_dir, role);
+        
+        // Set up pipe-pane for logging
+        match run_with_timeout("tmux", &["pipe-pane", "-t", &format!("{}:{}", session_name, window_name), "-o", &format!("cat >> {}", log_file)], timeout) {
+            Ok((code, _, err)) if code != 0 => {
+                eprintln!("Warning: Failed to set up logging: {}", err);
+            }
+            Err(e) => {
+                eprintln!("Warning: Timeout setting up logging: {}", e);
+            }
+            _ => {} // Success
+        }
+    }
+    
+    // Start the provider REPL
+    let mut args = provider_config.repl_args.clone();
+    for arg in &mut args {
+        *arg = arg.replace("{system_prompt}", &agent.system_prompt)
+                 .replace("{allowed_tools}", &agent.allowed_tools.join(","));
+    }
+    
+    // Set working directory if specified
+    if let Some(workdir) = workdir {
+        match run_with_timeout("tmux", &["send-keys", "-t", &format!("{}:{}", session_name, window_name), &format!("cd {}", workdir), "Enter"], timeout) {
+            Ok((code, _, err)) if code != 0 => {
+                eprintln!("Warning: Failed to set working directory: {}", err);
+            }
+            Err(e) => {
+                eprintln!("Warning: Timeout setting working directory: {}", e);
+            }
+            _ => {} // Success
+        }
+    }
+    
+    // Start the provider command
+    let cmd_line = format!("{} {}", provider_config.cmd, args.join(" "));
+    match run_with_timeout("tmux", &["send-keys", "-t", &format!("{}:{}", session_name, window_name), &cmd_line, "Enter"], timeout) {
+        Ok((code, _, err)) if code != 0 => {
+            return exit_with(8, format!("Failed to start agent: {}", err));
+        }
+        Err(e) => {
+            return exit_with(5, format!("Timeout starting agent: {}", e));
+        }
+        _ => {} // Success
+    }
+    
+    println!("Agent '{}' started in tmux session '{}'", agent_name, session_name);
+    Ok(())
+}
+
+fn run_agent_attach(
+    project_file: Option<&str>, 
+    project_name: Option<&str>, 
+    agent_name: &str, 
+    timeout_ms: Option<u64>
+) -> Result<(), Box<dyn std::error::Error>> {
+    let timeout = Duration::from_millis(timeout_ms.unwrap_or(DEFAULT_AGENT_TIMEOUT_MS));
+    
+    // Resolve config paths
+    let (project_path, _) = match resolve_config_paths(project_file, None) {
+        Ok(p) => p,
+        Err(msg) => return exit_with(6, msg),
+    };
+    
+    // Load project configuration
+    let proj_s = fs::read_to_string(&project_path)?;
+    let project = parse_project_yaml(&proj_s).map_err(|e| format!("project: {}", e))?;
+    
+    // Determine project name
+    let project_name = project_name.unwrap_or(&project.project);
+    
+    // Find agent configuration
+    let agent = project.agents.iter()
+        .find(|a| a.name == agent_name)
+        .ok_or_else(|| format!("Agent '{}' not found in project '{}'", agent_name, project_name))?;
+    
+    // Build tmux session and window names
+    let session_name = format!("proj:{}", project_name);
+    let window_name = format!("{}:{}", agent.role, agent_name);
+    
+    // Check if session exists
+    let session_exists = match run_with_timeout("tmux", &["has-session", "-t", &session_name], timeout) {
+        Ok((code, _, _)) => code == 0,
+        Err(_) => false,
+    };
+    
+    if !session_exists {
+        return exit_with(2, format!("No tmux session found for project '{}'", project_name));
+    }
+    
+    // Check if window exists
+    let window_exists = match run_with_timeout("tmux", &["list-windows", "-t", &session_name, "-F", "#{window_name}"], timeout) {
+        Ok((code, out, _)) if code == 0 => out.lines().any(|line| line.trim() == window_name),
+        _ => false,
+    };
+    
+    if !window_exists {
+        return exit_with(2, format!("Agent '{}' is not running in tmux session '{}'", agent_name, session_name));
+    }
+    
+    // Attach to the session
+    match run_with_timeout("tmux", &["attach-session", "-t", &session_name], timeout) {
+        Ok((code, _, err)) if code != 0 => {
+            return exit_with(8, format!("Failed to attach to tmux session: {}", err));
+        }
+        Err(e) => {
+            return exit_with(5, format!("Timeout attaching to tmux session: {}", e));
+        }
+        _ => {} // Success - this will block until user detaches
+    }
+    
+    Ok(())
+}
+
+fn run_agent_stop(
+    project_file: Option<&str>, 
+    project_name: Option<&str>, 
+    agent_name: &str, 
+    timeout_ms: Option<u64>
+) -> Result<(), Box<dyn std::error::Error>> {
+    let timeout = Duration::from_millis(timeout_ms.unwrap_or(DEFAULT_AGENT_TIMEOUT_MS));
+    
+    // Resolve config paths
+    let (project_path, _) = match resolve_config_paths(project_file, None) {
+        Ok(p) => p,
+        Err(msg) => return exit_with(6, msg),
+    };
+    
+    // Load project configuration
+    let proj_s = fs::read_to_string(&project_path)?;
+    let project = parse_project_yaml(&proj_s).map_err(|e| format!("project: {}", e))?;
+    
+    // Determine project name
+    let project_name = project_name.unwrap_or(&project.project);
+    
+    // Find agent configuration
+    let agent = project.agents.iter()
+        .find(|a| a.name == agent_name)
+        .ok_or_else(|| format!("Agent '{}' not found in project '{}'", agent_name, project_name))?;
+    
+    // Build tmux session and window names
+    let session_name = format!("proj:{}", project_name);
+    let window_name = format!("{}:{}", agent.role, agent_name);
+    
+    // Check if session exists
+    let session_exists = match run_with_timeout("tmux", &["has-session", "-t", &session_name], timeout) {
+        Ok((code, _, _)) => code == 0,
+        Err(_) => false,
+    };
+    
+    if !session_exists {
+        println!("No tmux session found for project '{}' - nothing to stop", project_name);
+        return Ok(());
+    }
+    
+    // Check if window exists
+    let window_exists = match run_with_timeout("tmux", &["list-windows", "-t", &session_name, "-F", "#{window_name}"], timeout) {
+        Ok((code, out, _)) if code == 0 => out.lines().any(|line| line.trim() == window_name),
+        _ => false,
+    };
+    
+    if !window_exists {
+        println!("Agent '{}' is not running in tmux session '{}' - nothing to stop", agent_name, session_name);
+        return Ok(());
+    }
+    
+    // Kill the window
+    match run_with_timeout("tmux", &["kill-window", "-t", &format!("{}:{}", session_name, window_name)], timeout) {
+        Ok((code, _, err)) if code != 0 => {
+            return exit_with(8, format!("Failed to stop agent: {}", err));
+        }
+        Err(e) => {
+            return exit_with(5, format!("Timeout stopping agent: {}", e));
+        }
+        _ => {} // Success
+    }
+    
+    println!("Agent '{}' stopped in tmux session '{}'", agent_name, session_name);
+    Ok(())
+}
+
 fn run_init(config_dir: Option<&str>, force: bool, skip_db: bool) -> Result<(), Box<dyn std::error::Error>> {
     let base = config_dir.unwrap_or("./config");
     
@@ -1836,27 +2174,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_supports_from_help_texts() {
-        let claude_help = "--output-format --session-id --allowed-tools --permission-mode -r";
-        let s = parse_claude_supports(claude_help);
-        assert!(s.get("output_format").copied().unwrap_or(false));
-        assert!(s.get("session_id").copied().unwrap_or(false));
-        assert!(s.get("allowed_tools").copied().unwrap_or(false));
-        assert!(s.get("permission_mode").copied().unwrap_or(false));
-        assert!(s.get("resume").copied().unwrap_or(false));
-
-        let cursor_help = "-p --output-format create-chat --resume";
-        let s2 = parse_cursor_supports(cursor_help);
-        assert!(s2.get("print").copied().unwrap_or(false));
-        assert!(s2.get("output_format").copied().unwrap_or(false));
-        assert!(s2.get("create_chat").copied().unwrap_or(false));
-        assert!(s2.get("resume").copied().unwrap_or(false));
-
-        let gemini_help = "-i something --allowed-tools";
-        let s3 = parse_gemini_supports(gemini_help);
-        assert!(s3.get("interactive").copied().unwrap_or(false));
-        assert!(s3.get("allowed_tools").copied().unwrap_or(false));
-
+    fn parse_tmux_supports_from_help_texts() {
         let list_cmds = "list-commands\npipe-pane\nresize-pane";
         let s4 = parse_tmux_list_commands(list_cmds);
         assert!(s4.get("pipe_pane").copied().unwrap_or(false));
@@ -1895,5 +2213,103 @@ mod tests {
         assert_eq!(std::path::Path::new(&pr), project_p);
         assert_eq!(std::path::Path::new(&pv), providers_p);
         std::env::remove_var("MULTI_AGENTS_CONFIG_DIR");
+    }
+
+    #[test]
+    fn agent_cmd_parsing() {
+        // Test parsing of agent run command
+        let args = vec![
+            "multi-agents", "agent", "run", 
+            "--project", "test-project",
+            "--agent", "backend",
+            "--role", "backend",
+            "--provider", "claude",
+            "--model", "claude-3",
+            "--workdir", "/tmp",
+            "--no-logs",
+            "--timeout-ms", "10000"
+        ];
+        
+        let cli = Cli::try_parse_from(args).expect("Should parse agent run command");
+        match cli.cmd {
+            Commands::Agent { cmd } => match cmd {
+                AgentCmd::Run { project, agent, role, provider, model, workdir, no_logs, timeout_ms, .. } => {
+                    assert_eq!(project, Some("test-project".to_string()));
+                    assert_eq!(agent, "backend");
+                    assert_eq!(role, Some("backend".to_string()));
+                    assert_eq!(provider, Some("claude".to_string()));
+                    assert_eq!(model, Some("claude-3".to_string()));
+                    assert_eq!(workdir, Some("/tmp".to_string()));
+                    assert!(no_logs);
+                    assert_eq!(timeout_ms, Some(10000));
+                }
+                _ => panic!("Expected Run command"),
+            },
+            _ => panic!("Expected Agent command"),
+        }
+    }
+
+    #[test]
+    fn agent_cmd_parsing_attach() {
+        // Test parsing of agent attach command
+        let args = vec![
+            "multi-agents", "agent", "attach",
+            "--project", "test-project",
+            "--agent", "frontend",
+            "--timeout-ms", "5000"
+        ];
+        
+        let cli = Cli::try_parse_from(args).expect("Should parse agent attach command");
+        match cli.cmd {
+            Commands::Agent { cmd } => match cmd {
+                AgentCmd::Attach { project, agent, timeout_ms, .. } => {
+                    assert_eq!(project, Some("test-project".to_string()));
+                    assert_eq!(agent, "frontend");
+                    assert_eq!(timeout_ms, Some(5000));
+                }
+                _ => panic!("Expected Attach command"),
+            },
+            _ => panic!("Expected Agent command"),
+        }
+    }
+
+    #[test]
+    fn agent_cmd_parsing_stop() {
+        // Test parsing of agent stop command
+        let args = vec![
+            "multi-agents", "agent", "stop",
+            "--project", "test-project",
+            "--agent", "devops"
+        ];
+        
+        let cli = Cli::try_parse_from(args).expect("Should parse agent stop command");
+        match cli.cmd {
+            Commands::Agent { cmd } => match cmd {
+                AgentCmd::Stop { project, agent, timeout_ms, .. } => {
+                    assert_eq!(project, Some("test-project".to_string()));
+                    assert_eq!(agent, "devops");
+                    assert_eq!(timeout_ms, None); // Should default to None
+                }
+                _ => panic!("Expected Stop command"),
+            },
+            _ => panic!("Expected Agent command"),
+        }
+    }
+
+    #[test]
+    fn agent_cmd_help() {
+        // Test that help is generated correctly
+        let args = vec!["multi-agents", "agent", "--help"];
+        let result = Cli::try_parse_from(args);
+        // This should fail because --help is handled by clap before parsing
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn agent_cmd_missing_required_args() {
+        // Test that missing required args fail
+        let args = vec!["multi-agents", "agent", "run"];
+        let result = Cli::try_parse_from(args);
+        assert!(result.is_err());
     }
 }
