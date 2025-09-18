@@ -1,0 +1,147 @@
+---
+alwaysApply: true
+description: Workflow de développement strict avec création de branche obligatoire
+---
+
+# Workflow de Développement Strict - Branches Obligatoires
+
+## ⚠️ RÈGLE CRITIQUE : Créer la branche AVANT toute implémentation
+
+**TOUJOURS créer une nouvelle branche feature AVANT de commencer l'implémentation, même pour les plus petites modifications.**
+
+## Workflow Obligatoire (dans l'ordre exact)
+
+### 1. **Explorer** 🔍
+- Lire la documentation: [docs/overview.md](mdc:docs/overview.md), [docs/product-brief.md](mdc:docs/product-brief.md), [docs/data-model.md](mdc:docs/data-model.md), [docs/cli-reference.md](mdc:docs/cli-reference.md), [docs/roadmap.md](mdc:docs/roadmap.md)
+- Inspecter la structure projet: [crates/cli/src/main.rs](mdc:crates/cli/src/main.rs), [config/](mdc:config/), [logs/](mdc:logs/)
+- Valider les règles Cursor existantes dans [.cursor/rules](mdc:.cursor/rules/)
+
+### 2. **Planifier** 📋
+- Lister des TODOs atomiques (outil TODO de Cursor) avec un seul élément en cours
+- Identifier les impacts (API OpenAPI, schémas SQLite, config YAML)
+- **PRÉPARER les branches selon la convention `feature/`, `bugfix/`, `hotfix/`, `refactor/`**
+
+### 3. **🚨 CRÉER NOUVELLE BRANCHE (OBLIGATOIRE)** 🌿
+```bash
+# TOUJOURS faire ceci EN PREMIER avant tout code
+git checkout -b feature/m4-XX-description
+# ou
+git checkout -b bugfix/issue-XX-description  
+# ou
+git checkout -b hotfix/critical-XX-description
+# ou
+git checkout -b refactor/component-XX-description
+```
+
+**⚠️ INTERDICTION ABSOLUE :**
+- ❌ Committer sur `main` directement
+- ❌ Implémenter avant de créer la branche
+- ❌ Créer la branche après avoir committé
+
+### 4. **Écrire les tests en premier (TDD)** 🧪
+- Backend Java: JUnit 5 + Mockito + AssertJ; tests de contrat OpenAPI
+- Frontend React: React Testing Library, data-testid, Web Vitals
+- Valider les spécifications OpenAPI et générer le client API
+
+### 5. **Commit (RED)** 📝
+```bash
+git add .
+git commit -m "test: add unit tests for [feature description]"
+```
+
+### 6. **Coder (GREEN)** 💻
+- Respecter l'architecture (Hexagonale pour Java, couches définies, atomique pour UI)
+- TypeScript strict, ESLint/Prettier, NestJS best practices
+- Sécurité: secrets via env, cookies sécurisés, XSS, CSP, sanitization
+
+### 7. **Itérer (REFACTOR)** 🔄
+- Refactoriser pour clarté et lisibilité; maintenir la couverture
+- Mettre à jour la documentation (OpenAPI, README, docs/*) si nécessaire
+
+### 8. **Commit** 📝
+```bash
+git add .
+git commit -m "feat: implement [feature description]
+
+- Détail des changements
+- Critères d'acceptation respectés
+- Tests passants
+
+Closes #XX"
+```
+
+### 9. **Pousser la branche** 🚀
+```bash
+git push -u origin feature/m4-XX-description
+```
+
+### 10. **Créer la MR qui ferme l'issue** 🔗
+```bash
+glab mr create --title "feat: [description] - Closes #XX" \
+  --description "## Description
+[Description complète]
+
+## Changes
+- ✅ [Liste des changements]
+
+## Testing
+- ✅ [Tests effectués]
+
+## Acceptance Criteria
+- [x] [Critères respectés]
+
+Closes #XX" \
+  --assignee fenikz \
+  --label "milestone::M4,area::[area],type::feat,priority::high"
+```
+
+## Conventions de Branches
+
+- `feature/m4-XX-description` : Nouvelles fonctionnalités
+- `bugfix/issue-XX-description` : Corrections de bugs
+- `hotfix/critical-XX-description` : Corrections critiques
+- `refactor/component-XX-description` : Refactoring
+
+## Vérifications Obligatoires
+
+Avant chaque commit, vérifier :
+- [ ] Branche créée AVANT l'implémentation
+- [ ] Tests écrits en premier (TDD)
+- [ ] Code respecte l'architecture
+- [ ] Lints passent
+- [ ] Tests passent
+- [ ] Documentation mise à jour si nécessaire
+
+## Sanctions en Cas de Non-Respect
+
+Si l'agent ne suit pas ce workflow :
+1. **ARRÊTER** immédiatement l'implémentation
+2. Créer la branche appropriée
+3. Déplacer les changements sur la branche (cherry-pick si nécessaire)
+4. Reprendre le workflow depuis l'étape 4
+
+## Exemples de Messages de Commit
+
+```bash
+# Tests (RED)
+git commit -m "test: add unit tests for agent commands (run|attach|stop)"
+
+# Implémentation (GREEN)  
+git commit -m "feat: implement agent commands (run|attach|stop) for M4 tmux REPL
+
+- Add AgentCmd enum with Run, Attach, Stop subcommands
+- Implement run_agent_run: create tmux session/window, start provider REPL
+- Support all flags: --project, --agent, --role, --provider, --model, --workdir
+- Follow tmux conventions: session 'proj:{project}', window '{role}:{agent}'
+- Timeout 5s per action, exit codes 0/2/5/8 according to spec
+- NDJSON logging to ./logs/{project}/{role}.ndjson
+- Idempotent operations: no duplicates on rerun
+
+Closes #31"
+```
+
+## Références
+
+- Workflow complet: [docs/workflows.md](mdc:docs/workflows.md)
+- CLI Reference: [docs/cli-reference.md](mdc:docs/cli-reference.md)
+- Architecture: [docs/overview.md](mdc:docs/overview.md)

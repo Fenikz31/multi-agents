@@ -1,0 +1,226 @@
+---
+alwaysApply: true
+description: Conventions strictes pour les branches et commits
+---
+
+# Conventions de Branches et Commits
+
+## Conventions de Branches (OBLIGATOIRES)
+
+### Format Standard
+```
+{type}/{milestone}-{issue}-{description}
+```
+
+### Types de Branches
+- `feature/` : Nouvelles fonctionnalités
+- `bugfix/` : Corrections de bugs
+- `hotfix/` : Corrections critiques (production)
+- `refactor/` : Refactoring sans changement fonctionnel
+- `docs/` : Documentation uniquement
+- `test/` : Tests uniquement
+
+### Exemples Corrects
+```bash
+# Fonctionnalités M4
+feature/m4-31-agent-commands
+feature/m4-32-broadcast-system
+feature/m4-33-tui-kanban
+
+# Corrections de bugs
+bugfix/issue-42-doctor-timeout
+bugfix/issue-55-config-validation
+
+# Corrections critiques
+hotfix/critical-78-security-patch
+hotfix/critical-89-memory-leak
+
+# Refactoring
+refactor/component-91-tmux-manager
+refactor/component-92-session-handler
+
+# Documentation
+docs/update-cli-reference
+docs/add-m4-examples
+
+# Tests
+test/integration-agent-lifecycle
+test/unit-tmux-operations
+```
+
+### Exemples INCORRECTS ❌
+```bash
+# Trop générique
+feature/new-stuff
+bugfix/fix
+hotfix/urgent
+
+# Pas de milestone/issue
+feature/agent-commands
+bugfix/doctor-fix
+
+# Format incorrect
+feature_m4_31_agent_commands
+bugfix-issue-42
+```
+
+## Conventions de Commits (OBLIGATOIRES)
+
+### Format Standard (Conventional Commits)
+```
+{type}({scope}): {description}
+
+{body}
+
+{footer}
+```
+
+### Types de Commits
+- `feat:` : Nouvelle fonctionnalité
+- `fix:` : Correction de bug
+- `refactor:` : Refactoring
+- `test:` : Ajout/modification de tests
+- `docs:` : Documentation
+- `style:` : Formatage, pas de changement de code
+- `perf:` : Amélioration de performance
+- `chore:` : Tâches de maintenance
+
+### Scopes (optionnels mais recommandés)
+- `cli` : Interface en ligne de commande
+- `backend` : Backend Java
+- `frontend` : Frontend React
+- `db` : Base de données
+- `config` : Configuration
+- `docs` : Documentation
+- `tests` : Tests
+
+### Exemples Corrects
+
+#### Tests (TDD - RED)
+```bash
+git commit -m "test: add unit tests for agent commands (run|attach|stop)
+
+- Test CLI parsing for all flags
+- Test error cases and validation
+- Test help generation
+- Follow TDD approach for M4 issue #31"
+```
+
+#### Implémentation (TDD - GREEN)
+```bash
+git commit -m "feat(cli): implement agent commands (run|attach|stop) for M4 tmux REPL
+
+- Add AgentCmd enum with Run, Attach, Stop subcommands
+- Implement run_agent_run: create tmux session/window, start provider REPL
+- Implement run_agent_attach: attach to existing tmux session
+- Implement run_agent_stop: stop agent tmux window (idempotent)
+- Support all flags: --project, --agent, --role, --provider, --model, --workdir
+- Follow tmux conventions: session 'proj:{project}', window '{role}:{agent}'
+- Timeout 5s per action, exit codes 0/2/5/8 according to spec
+- NDJSON logging to ./logs/{project}/{role}.ndjson
+- Idempotent operations: no duplicates on rerun
+
+Closes #31"
+```
+
+#### Correction de Bug
+```bash
+git commit -m "fix(doctor): resolve merge conflict in provider detection
+
+- Keep concurrent implementation with std::thread::spawn
+- Remove merge conflict markers
+- Maintain parallel probing with global timeout
+- Fix linter warnings
+
+Closes #42"
+```
+
+#### Refactoring
+```bash
+git commit -m "refactor(tmux): extract session management into dedicated module
+
+- Create TmuxManager struct for session operations
+- Move session creation/attachment logic to separate module
+- Improve error handling and timeout management
+- Add comprehensive unit tests
+
+Closes #55"
+```
+
+#### Documentation
+```bash
+git commit -m "docs(cli): update CLI reference with new agent commands
+
+- Add agent run|attach|stop commands to reference
+- Include examples and usage patterns
+- Update exit codes documentation
+- Add troubleshooting section
+
+Closes #67"
+```
+
+### Exemples INCORRECTS ❌
+```bash
+# Trop vague
+git commit -m "fix stuff"
+git commit -m "update"
+git commit -m "changes"
+
+# Pas de type
+git commit -m "implement agent commands"
+
+# Pas de description claire
+git commit -m "feat: stuff"
+
+# Pas de fermeture d'issue
+git commit -m "feat: implement agent commands"
+```
+
+## Règles de Validation
+
+### Avant Chaque Commit
+1. [ ] Message suit le format conventional commits
+2. [ ] Description claire et concise
+3. [ ] Body détaille les changements si nécessaire
+4. [ ] Footer avec `Closes #XX` si applicable
+5. [ ] Pas de fautes d'orthographe
+6. [ ] Anglais pour les messages de commit
+
+### Avant Chaque Push
+1. [ ] Branche suit la convention de nommage
+2. [ ] Tous les commits sont bien formatés
+3. [ ] Tests passent
+4. [ ] Lints passent
+5. [ ] Documentation mise à jour si nécessaire
+
+## Commandes Utiles
+
+### Vérification des Branches
+```bash
+# Lister les branches locales
+git branch
+
+# Lister les branches distantes
+git branch -r
+
+# Voir la branche actuelle
+git branch --show-current
+```
+
+### Vérification des Commits
+```bash
+# Voir l'historique des commits
+git log --oneline
+
+# Voir les commits d'une branche
+git log --oneline feature/m4-31-agent-commands
+
+# Voir les différences avec main
+git diff main..feature/m4-31-agent-commands
+```
+
+## Références
+
+- Conventional Commits: https://www.conventionalcommits.org/
+- Git Flow: [docs/workflows.md](mdc:docs/workflows.md)
+- CLI Reference: [docs/cli-reference.md](mdc:docs/cli-reference.md)
