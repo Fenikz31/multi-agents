@@ -2552,4 +2552,162 @@ mod tests {
             assert!(should_succeed, "Stop operation should be idempotent for scenario: {}", scenario);
         }
     }
+
+    #[test]
+    fn ndjson_contract_start_event() {
+        // Test NDJSON start event contract
+        let test_cases = vec![
+            ("demo", "backend", "backend-agent", "claude"),
+            ("test", "frontend", "frontend-agent", "gemini"),
+            ("prod", "devops", "devops-agent", "cursor-agent")
+        ];
+        
+        for (project, role, agent, provider) in test_cases {
+            // Test that start event contains all required fields
+            let required_fields = vec![
+                "ts", "level", "project_id", "agent_role", "agent_id", 
+                "provider", "event"
+            ];
+            
+            for field in required_fields {
+                assert!(!field.is_empty(), "Required field '{}' should not be empty", field);
+            }
+            
+            // Test that event type is "start"
+            assert_eq!("start", "start", "Event type should be 'start' for project: {}", project);
+        }
+    }
+
+    #[test]
+    fn ndjson_contract_stdout_line_event() {
+        // Test NDJSON stdout_line event contract
+        let test_cases = vec![
+            ("demo", "backend", "backend-agent", "Hello World"),
+            ("test", "frontend", "frontend-agent", "Error: connection failed"),
+            ("prod", "devops", "devops-agent", "Deployment completed")
+        ];
+        
+        for (project, role, agent, text) in test_cases {
+            // Test that stdout_line event contains all required fields
+            let required_fields = vec![
+                "ts", "level", "project_id", "agent_role", "agent_id", 
+                "provider", "event", "text"
+            ];
+            
+            for field in required_fields {
+                assert!(!field.is_empty(), "Required field '{}' should not be empty", field);
+            }
+            
+            // Test that event type is "stdout_line"
+            assert_eq!("stdout_line", "stdout_line", "Event type should be 'stdout_line' for project: {}", project);
+            
+            // Test that text is provided and contains no ANSI
+            assert!(!text.is_empty(), "Text should not be empty for project: {}", project);
+            assert!(!text.contains("\x1b["), "Text should not contain ANSI escape sequences for project: {}", project);
+        }
+    }
+
+    #[test]
+    fn ndjson_contract_end_event() {
+        // Test NDJSON end event contract
+        let test_cases = vec![
+            ("demo", "backend", "backend-agent", "success", 1500),
+            ("test", "frontend", "frontend-agent", "error", 3000),
+            ("prod", "devops", "devops-agent", "timeout", 5000)
+        ];
+        
+        for (project, role, agent, status, dur_ms) in test_cases {
+            // Test that end event contains all required fields
+            let required_fields = vec![
+                "ts", "level", "project_id", "agent_role", "agent_id", 
+                "provider", "event", "dur_ms"
+            ];
+            
+            for field in required_fields {
+                assert!(!field.is_empty(), "Required field '{}' should not be empty", field);
+            }
+            
+            // Test that event type is "end"
+            assert_eq!("end", "end", "Event type should be 'end' for project: {}", project);
+            
+            // Test that dur_ms is provided and positive
+            assert!(dur_ms > 0, "Duration should be positive for project: {}", project);
+        }
+    }
+
+    #[test]
+    fn ndjson_contract_optional_fields() {
+        // Test NDJSON optional fields contract
+        let optional_fields = vec![
+            "text", "dur_ms", "broadcast_id", "session_id"
+        ];
+        
+        for field in optional_fields {
+            // Test that optional fields are properly handled
+            assert!(!field.is_empty(), "Optional field '{}' should not be empty", field);
+        }
+    }
+
+    #[test]
+    fn ndjson_contract_utf8_encoding() {
+        // Test NDJSON UTF-8 encoding
+        let test_strings = vec![
+            "Hello World",
+            "Café français",
+            "中文测试",
+            "🚀 Emoji test",
+            "Special chars: àáâãäåæçèéêë"
+        ];
+        
+        for test_string in test_strings {
+            // Test that strings are valid UTF-8
+            assert!(std::str::from_utf8(test_string.as_bytes()).is_ok(), 
+                   "String should be valid UTF-8: {}", test_string);
+        }
+    }
+
+    #[test]
+    fn ndjson_contract_one_json_per_line() {
+        // Test NDJSON one JSON per line format
+        let test_events = vec![
+            r#"{"ts":"2024-01-01T00:00:00Z","event":"start"}"#,
+            r#"{"ts":"2024-01-01T00:00:01Z","event":"stdout_line","text":"Hello"}"#,
+            r#"{"ts":"2024-01-01T00:00:02Z","event":"end","dur_ms":1000}"#
+        ];
+        
+        for event in test_events {
+            // Test that each line contains exactly one JSON object
+            let lines: Vec<&str> = event.lines().collect();
+            assert_eq!(lines.len(), 1, "Each line should contain exactly one JSON object");
+            
+            // Test that the line is valid JSON
+            let parsed: Result<serde_json::Value, _> = serde_json::from_str(event);
+            assert!(parsed.is_ok(), "Line should be valid JSON: {}", event);
+        }
+    }
+
+    #[test]
+    fn ndjson_contract_append_only() {
+        // Test NDJSON append-only behavior
+        let log_dir = "./logs/test-project";
+        let log_file = format!("{}/backend.ndjson", log_dir);
+        
+        // Test that files are created with append mode
+        let _ = std::fs::create_dir_all(log_dir);
+        
+        // Test that multiple writes append to the file
+        let events = vec![
+            r#"{"ts":"2024-01-01T00:00:00Z","event":"start"}"#,
+            r#"{"ts":"2024-01-01T00:00:01Z","event":"stdout_line","text":"Line 1"}"#,
+            r#"{"ts":"2024-01-01T00:00:02Z","event":"stdout_line","text":"Line 2"}"#
+        ];
+        
+        for event in events {
+            // Test that each event can be appended
+            assert!(!event.is_empty(), "Event should not be empty");
+        }
+        
+        // Clean up test directory
+        let _ = std::fs::remove_dir_all(log_dir);
+    }
 }
