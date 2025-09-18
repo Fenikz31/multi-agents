@@ -1271,7 +1271,7 @@ fn run_doctor(format: Format, ndjson_sample: Option<&str>, snapshot_path: Option
     let pb = ProgressBar::new_spinner();
     pb.set_style(ProgressStyle::with_template("{spinner} doctor").unwrap());
     pb.enable_steady_tick(Duration::from_millis(120));
-    let _global_timeout = DEFAULT_TIMEOUT_GLOBAL_MS; // reserved for future aggregation
+    let global_cap: u64 = DEFAULT_TIMEOUT_GLOBAL_MS; // 20s global cap
 
     // Try to read providers.yaml to get cmd/help/version args; fallback to built-in probes
     let mut results: Vec<ProbeResult> = Vec::new();
@@ -1280,25 +1280,40 @@ fn run_doctor(format: Format, ndjson_sample: Option<&str>, snapshot_path: Option
         .and_then(|(_project_path, providers_path)| std::fs::read_to_string(&providers_path).ok())
         .and_then(|s| parse_providers_yaml(&s).ok());
 
+    let started = Instant::now();
     if let Some(cfg) = providers_cfg {
-        // Prefer config cmd if present; otherwise use binary names
         let empty: Vec<String> = Vec::new();
-        let gem_bin = cfg.providers.get("gemini").map(|p| p.cmd.as_str()).unwrap_or("gemini");
-        let cla_bin = cfg.providers.get("claude").map(|p| p.cmd.as_str()).unwrap_or("claude");
-        let cur_bin = cfg.providers.get("cursor-agent").map(|p| p.cmd.as_str()).unwrap_or("cursor-agent");
-        results.push(probe_version_only("gemini", gem_bin, &empty, per_timeout));
-        results.push(probe_version_only("claude", cla_bin, &empty, per_timeout));
-        results.push(probe_version_only("cursor-agent", cur_bin, &empty, per_timeout));
-        results.push(probe_tmux(per_timeout));
-        results.push(probe_git(per_timeout));
+        let gem_bin = cfg.providers.get("gemini").map(|p| p.cmd.clone()).unwrap_or_else(|| "gemini".into());
+        let cla_bin = cfg.providers.get("claude").map(|p| p.cmd.clone()).unwrap_or_else(|| "claude".into());
+        let cur_bin = cfg.providers.get("cursor-agent").map(|p| p.cmd.clone()).unwrap_or_else(|| "cursor-agent".into());
+        let handles = vec![
+            std::thread::spawn({ let gem_bin = gem_bin.clone(); let empty = empty.clone(); move || probe_version_only("gemini", &gem_bin, &empty, per_timeout) }),
+            std::thread::spawn({ let cla_bin = cla_bin.clone(); let empty = empty.clone(); move || probe_version_only("claude", &cla_bin, &empty, per_timeout) }),
+            std::thread::spawn({ let cur_bin = cur_bin.clone(); let empty = empty.clone(); move || probe_version_only("cursor-agent", &cur_bin, &empty, per_timeout) }),
+            std::thread::spawn(move || probe_tmux(per_timeout)),
+            std::thread::spawn(move || probe_git(per_timeout)),
+        ];
+        for h in handles {
+            let remain = global_cap.saturating_sub(started.elapsed().as_millis() as u64);
+            if remain == 0 { break; }
+            let r = h.join().unwrap_or_else(|_| ProbeResult { name: "unknown".into(), present: false, version: None, supports: BTreeMap::new(), timed_out: true, error: Some("thread_panic".into()) });
+            results.push(r);
+        }
     } else {
-        // Fallback: version-only with default binaries
         let empty: Vec<String> = Vec::new();
-        results.push(probe_version_only("gemini", "gemini", &empty, per_timeout));
-        results.push(probe_version_only("claude", "claude", &empty, per_timeout));
-        results.push(probe_version_only("cursor-agent", "cursor-agent", &empty, per_timeout));
-        results.push(probe_tmux(per_timeout));
-        results.push(probe_git(per_timeout));
+        let handles = vec![
+            std::thread::spawn({ let empty = empty.clone(); move || probe_version_only("gemini", "gemini", &empty, per_timeout) }),
+            std::thread::spawn({ let empty = empty.clone(); move || probe_version_only("claude", "claude", &empty, per_timeout) }),
+            std::thread::spawn({ let empty = empty.clone(); move || probe_version_only("cursor-agent", "cursor-agent", &empty, per_timeout) }),
+            std::thread::spawn(move || probe_tmux(per_timeout)),
+            std::thread::spawn(move || probe_git(per_timeout)),
+        ];
+        for h in handles {
+            let remain = global_cap.saturating_sub(started.elapsed().as_millis() as u64);
+            if remain == 0 { break; }
+            let r = h.join().unwrap_or_else(|_| ProbeResult { name: "unknown".into(), present: false, version: None, supports: BTreeMap::new(), timed_out: true, error: Some("thread_panic".into()) });
+            results.push(r);
+        }
     }
 
     // Derive status and worst error code according to spec
