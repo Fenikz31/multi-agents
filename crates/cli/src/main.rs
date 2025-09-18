@@ -1838,7 +1838,6 @@ fn write_ndjson_event(log_file: &str, event: &NdjsonEvent) -> Result<(), Box<dyn
     writeln!(file, "{}", serde_json::to_string(event)?)?;
     Ok(())
 }
-
 // Retry configuration for tmux operations
 const TMUX_RETRY_ATTEMPTS: u32 = 3;
 const TMUX_RETRY_DELAY_MS: u64 = 100;
@@ -2635,7 +2634,6 @@ mod tests {
             assert!(should_succeed, "Stop operation should be idempotent for scenario: {}", scenario);
         }
     }
-
     #[test]
     fn ndjson_contract_start_event() {
         // Test NDJSON start event contract
