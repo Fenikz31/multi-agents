@@ -1,0 +1,64 @@
+---
+alwaysApply: true
+description: "Workflow de d 9veloppement guid 9: explorer 3e planifier 3e tests 3e commit 3e code 3e it 9rer 3e commit 3e MR"
+---
+
+# Workflow de d 9veloppement
+
+Cette r 8gle d 9finit le flux de travail standard 0 appliquer pour toute t 2che: explorer 3e planifier 3e 9crire tests 3e commit 3e coder 3e it 9rer 3e commit 3e cr 9er MR qui ferme l'issue en cours.
+
+## 1. Explorer
+- **Objectif**: Comprendre le contexte et l'impact.
+- **Actions**:
+  - Lire la documentation: [docs/overview.md](mdc:docs/overview.md), [docs/product-brief.md](mdc:docs/product-brief.md), [docs/data-model.md](mdc:docs/data-model.md), [docs/cli-reference.md](mdc:docs/cli-reference.md), [docs/roadmap.md](mdc:docs/roadmap.md).
+  - Inspecter la structure projet: [crates/cli/src/main.rs](mdc:crates/cli/src/main.rs), [config/](mdc:config/), [logs/](mdc:logs/).
+  - Valider les r 8gles Cursor existantes dans [.cursor/rules](mdc:.cursor/rules/).
+
+## 2. Planifier
+- **Objectif**: D 9finir une approche minimale viable.
+- **Actions**:
+  - Lister des TODOs atomiques (outil TODO de Cursor) avec un seul 9l 9lement en cours.
+  - Identifier les impacts (API OpenAPI, sch 9mas SQLite, config YAML).
+  - Pr 9parer les branches selon la convention `feature/`, `bugfix/`, `hotfix/`, `refactor/`.
+
+## 3. 9crire les tests en premier (TDD)
+- **Objectif**: D 9finir le comportement attendu.
+- **Actions**:
+  - Backend Java: JUnit 5 + Mockito + AssertJ; tests de contrat OpenAPI.
+  - Frontend React: React Testing Library, data-testid, Web Vitals.
+  - Valider les sp 9cifications OpenAPI et g 9n 9rer le client API.
+
+## 4. Commit (RED)
+- **Objectif**: Capturer l' 9tat rouge initial.
+- **Actions**:
+  - Commit conventionnel avec le pr 9fixe appropri 9 (ex: `test: ...`).
+
+## 5. Coder (GREEN)
+- **Objectif**: Impl 9menter le minimum pour faire passer les tests.
+- **Actions**:
+  - Respecter l'architecture (Hexagonale pour Java, couches d 9finies, atomique pour UI).
+  - TypeScript strict, ESLint/Prettier, NestJS best practices.
+  - S 9curit 9: secrets via env, cookies s 9curis 9s, XSS, CSP, sanitization.
+
+## 6. It 9rer (REFACTOR)
+- **Objectif**: Am 9liorer la conception sans briser les tests.
+- **Actions**:
+  - Refactoriser pour clart 9 et lisibilit 9; maintenir la couverture.
+  - Mettre 0 jour la documentation (OpenAPI, README, docs/*) si n 9cessaire.
+
+## 7. Commit
+- **Objectif**: Enregistrer l' 9tat vert stable.
+- **Actions**:
+  - Commit conventionnel (ex: `feat:`, `fix:`, `refactor:`) avec message clair.
+
+## 8. Cr 9er la MR qui ferme l'issue
+- **Objectif**: Int 9grer via revue.
+- **Actions**:
+  - Titre de MR: inclure `Closes #<issue>`.
+  - Valider CI/CD: lint, tests unitaires, tests de contrat OpenAPI, g 9n 9rer clients API.
+  - Ajouter notes de changements pertinents.
+
+## Raccourcis et r 9f 9rences
+- CLI orchestrateur: [crates/cli/src/main.rs](mdc:crates/cli/src/main.rs)
+- Config par d 9faut: [config/defaults.yaml](mdc:config/defaults.yaml), [config/providers.yaml](mdc:config/providers.yaml), [config/project.yaml](mdc:config/project.yaml)
+- Logs NDJSON: [logs/full-demo/backend.ndjson](mdc:logs/full-demo/backend.ndjson), [logs/full-demo/frontend.ndjson](mdc:logs/full-demo/frontend.ndjson), [logs/full-demo/devops.ndjson](mdc:logs/full-demo/devops.ndjson), [logs/full-demo/supervisor.ndjson](mdc:logs/full-demo/supervisor.ndjson)
