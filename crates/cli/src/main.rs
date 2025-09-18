@@ -1101,8 +1101,8 @@ fn run_session_resume(conversation_id: &str, timeout_ms: Option<u64>) -> Result<
 
 // ---- doctor implementation ----
 
-const DEFAULT_TIMEOUT_PER_PROVIDER_MS: u64 = 2000; // docs/specs/errors-and-timeouts.md
-const DEFAULT_TIMEOUT_GLOBAL_MS: u64 = 10000;
+const DEFAULT_TIMEOUT_PER_PROVIDER_MS: u64 = 12000; // adjusted to tolerate slower CLIs (gemini ~10s)
+const DEFAULT_TIMEOUT_GLOBAL_MS: u64 = 20000;
 
 #[derive(Debug, Clone)]
 struct ProbeResult {
@@ -1146,101 +1146,72 @@ fn run_with_timeout(bin: &str, args: &[&str], timeout: Duration) -> Result<(i32,
 }
 
 fn probe_help(bin: &str, help_args: &[&str], timeout_ms: u64) -> Result<String, String> {
-    match run_with_timeout(bin, help_args, Duration::from_millis(timeout_ms)) {
+    let timeout = Duration::from_millis(timeout_ms);
+    let debug = std::env::var("DOCTOR_DEBUG").ok().map(|v| v == "1" || v.to_lowercase() == "true").unwrap_or(false);
+    if debug { eprintln!("[doctor] help probe: {} {:?}", bin, help_args); }
+    match run_with_timeout(bin, help_args, timeout) {
         Ok((_code, out, err)) => {
-            // Some CLIs print help to stderr
             let text = if !out.trim().is_empty() { out } else { err };
-            Ok(text)
+            return Ok(text);
         }
-        Err(e) => Err(e),
+        Err(e) => {
+            if debug { eprintln!("[doctor] help direct failed: {} {:?} => {}", bin, help_args, e); }
+            // Fallback via login shell to inherit PATH managers (e.g. NVM)
+            let joined = std::iter::once(bin).chain(help_args.iter().copied()).collect::<Vec<_>>().join(" ");
+            let shell_cmd = format!("bash -lc '{}'", joined.replace("'", "'\\''"));
+            if debug { eprintln!("[doctor] help via shell: {}", shell_cmd); }
+            match run_with_timeout("bash", &["-lc", &joined], timeout) {
+                Ok((_code, out, err)) => {
+                    let text = if !out.trim().is_empty() { out } else { err };
+                    Ok(text)
+                }
+                Err(e2) => Err(e2),
+            }
+        }
     }
 }
 
 fn probe_version(bin: &str, candidates: &[&[&str]], timeout_ms: u64) -> Option<String> {
     for args in candidates {
-        if let Ok((_code, out, err)) = run_with_timeout(bin, args, Duration::from_millis(timeout_ms)) {
-            let text = if !out.trim().is_empty() { out } else { err };
-            let line = text.lines().next().unwrap_or("").trim().to_string();
-            if !line.is_empty() {
-                return Some(line);
+        let timeout = Duration::from_millis(timeout_ms);
+        let debug = std::env::var("DOCTOR_DEBUG").ok().map(|v| v == "1" || v.to_lowercase() == "true").unwrap_or(false);
+        if debug { eprintln!("[doctor] version probe: {} {:?}", bin, args); }
+        match run_with_timeout(bin, args, timeout) {
+            Ok((_code, out, err)) => {
+                let text = if !out.trim().is_empty() { out } else { err };
+                let line = text.lines().next().unwrap_or("").trim().to_string();
+                if !line.is_empty() { return Some(line); }
+            }
+            Err(e) => {
+                if debug { eprintln!("[doctor] version direct failed: {} {:?} => {}", bin, args, e); }
+                // shell fallback
+                let joined = std::iter::once(bin).chain(args.iter().copied()).collect::<Vec<_>>().join(" ");
+                if let Ok((_code, out, err)) = run_with_timeout("bash", &["-lc", &joined], timeout) {
+                    let text = if !out.trim().is_empty() { out } else { err };
+                    let line = text.lines().next().unwrap_or("").trim().to_string();
+                    if !line.is_empty() { return Some(line); }
+                }
             }
         }
     }
     None
 }
 
-fn parse_gemini_supports(help: &str) -> BTreeMap<String, bool> {
-    let mut supports = BTreeMap::new();
-    supports.insert("allowed_tools".into(), help.contains("--allowed-tools"));
-    supports.insert("interactive".into(), help.contains("-i") || help.to_lowercase().contains("interactive"));
-    supports
-}
 
-fn probe_gemini(timeout_ms: u64) -> ProbeResult {
-    let mut timed_out = false;
-    let mut error = None;
-    let help = match probe_help("gemini", &["--help"], timeout_ms) {
-        Ok(h) => h,
-        Err(e) => {
-            if e == "timeout" { timed_out = true; }
-            error = Some(e);
-            return ProbeResult { name: "gemini".into(), present: false, version: None, supports: BTreeMap::new(), timed_out, error };
-        }
+
+fn probe_version_only(name: &str, cmd: &str, version_args: &[String], timeout_ms: u64) -> ProbeResult {
+    let supports = BTreeMap::new();
+    let version_candidates: Vec<Vec<&str>> = if version_args.is_empty() {
+        vec![vec!["--version"], vec!["version"], vec!["-v"]]
+    } else {
+        vec![version_args.iter().map(|s| s.as_str()).collect()]
     };
-    let supports = parse_gemini_supports(&help);
-    let version = probe_version("gemini", &[&["--version"], &["version"], &["-v"]], timeout_ms);
-    ProbeResult { name: "gemini".into(), present: true, version, supports, timed_out, error }
-}
-
-fn parse_claude_supports(help: &str) -> BTreeMap<String, bool> {
-    let mut supports = BTreeMap::new();
-    supports.insert("output_format".into(), help.contains("--output-format"));
-    supports.insert("session_id".into(), help.contains("--session-id"));
-    supports.insert("allowed_tools".into(), help.contains("--allowed-tools"));
-    supports.insert("permission_mode".into(), help.contains("--permission-mode"));
-    supports.insert("resume".into(), help.contains("-r") || help.contains("--resume"));
-    supports
-}
-
-fn probe_claude(timeout_ms: u64) -> ProbeResult {
-    let mut timed_out = false;
-    let mut error = None;
-    let help = match probe_help("claude", &["--help"], timeout_ms) {
-        Ok(h) => h,
-        Err(e) => {
-            if e == "timeout" { timed_out = true; }
-            error = Some(e);
-            return ProbeResult { name: "claude".into(), present: false, version: None, supports: BTreeMap::new(), timed_out, error };
-        }
-    };
-    let supports = parse_claude_supports(&help);
-    let version = probe_version("claude", &[&["--version"], &["version"], &["-v"]], timeout_ms);
-    ProbeResult { name: "claude".into(), present: true, version, supports, timed_out, error }
-}
-
-fn parse_cursor_supports(help: &str) -> BTreeMap<String, bool> {
-    let mut supports = BTreeMap::new();
-    supports.insert("print".into(), help.contains("-p"));
-    supports.insert("output_format".into(), help.contains("--output-format"));
-    supports.insert("create_chat".into(), help.contains("create-chat"));
-    supports.insert("resume".into(), help.contains("--resume"));
-    supports
-}
-
-fn probe_cursor(timeout_ms: u64) -> ProbeResult {
-    let mut timed_out = false;
-    let mut error = None;
-    let help = match probe_help("cursor-agent", &["--help"], timeout_ms) {
-        Ok(h) => h,
-        Err(e) => {
-            if e == "timeout" { timed_out = true; }
-            error = Some(e);
-            return ProbeResult { name: "cursor-agent".into(), present: false, version: None, supports: BTreeMap::new(), timed_out, error };
-        }
-    };
-    let supports = parse_cursor_supports(&help);
-    let version = probe_version("cursor-agent", &[&["--version"], &["version"], &["-v"]], timeout_ms);
-    ProbeResult { name: "cursor-agent".into(), present: true, version, supports, timed_out, error }
+    let version = probe_version(cmd, &version_candidates.iter().map(|v| v.as_slice()).collect::<Vec<_>>(), timeout_ms);
+    if let Some(v) = version {
+        ProbeResult { name: name.into(), present: true, version: Some(v), supports, timed_out: false, error: None }
+    } else {
+        ProbeResult { name: name.into(), present: false, version: None, supports, timed_out: false, error: Some("version_probe_failed".into()) }
+    }
 }
 
 fn parse_tmux_list_commands(list_cmds: &str) -> BTreeMap<String, bool> {
@@ -1300,51 +1271,63 @@ fn run_doctor(format: Format, ndjson_sample: Option<&str>, snapshot_path: Option
     let pb = ProgressBar::new_spinner();
     pb.set_style(ProgressStyle::with_template("{spinner} doctor").unwrap());
     pb.enable_steady_tick(Duration::from_millis(120));
-    let _global_timeout = DEFAULT_TIMEOUT_GLOBAL_MS; // reserved for future aggregation
+    let global_cap: u64 = DEFAULT_TIMEOUT_GLOBAL_MS; // 20s global cap
 
-    let results = vec![
-        probe_gemini(per_timeout),
-        probe_claude(per_timeout),
-        probe_cursor(per_timeout),
-        probe_tmux(per_timeout),
-        probe_git(per_timeout),
-    ];
+    // Try to read providers.yaml to get cmd/help/version args; fallback to built-in probes
+    let mut results: Vec<ProbeResult> = Vec::new();
+    let providers_cfg = resolve_config_paths(None, None)
+        .ok()
+        .and_then(|(_project_path, providers_path)| std::fs::read_to_string(&providers_path).ok())
+        .and_then(|s| parse_providers_yaml(&s).ok());
+
+    let started = Instant::now();
+    if let Some(cfg) = providers_cfg {
+        let empty: Vec<String> = Vec::new();
+        let gem_bin = cfg.providers.get("gemini").map(|p| p.cmd.clone()).unwrap_or_else(|| "gemini".into());
+        let cla_bin = cfg.providers.get("claude").map(|p| p.cmd.clone()).unwrap_or_else(|| "claude".into());
+        let cur_bin = cfg.providers.get("cursor-agent").map(|p| p.cmd.clone()).unwrap_or_else(|| "cursor-agent".into());
+        let handles = vec![
+            std::thread::spawn({ let gem_bin = gem_bin.clone(); let empty = empty.clone(); move || probe_version_only("gemini", &gem_bin, &empty, per_timeout) }),
+            std::thread::spawn({ let cla_bin = cla_bin.clone(); let empty = empty.clone(); move || probe_version_only("claude", &cla_bin, &empty, per_timeout) }),
+            std::thread::spawn({ let cur_bin = cur_bin.clone(); let empty = empty.clone(); move || probe_version_only("cursor-agent", &cur_bin, &empty, per_timeout) }),
+            std::thread::spawn(move || probe_tmux(per_timeout)),
+            std::thread::spawn(move || probe_git(per_timeout)),
+        ];
+        for h in handles {
+            let remain = global_cap.saturating_sub(started.elapsed().as_millis() as u64);
+            if remain == 0 { break; }
+            let r = h.join().unwrap_or_else(|_| ProbeResult { name: "unknown".into(), present: false, version: None, supports: BTreeMap::new(), timed_out: true, error: Some("thread_panic".into()) });
+            results.push(r);
+        }
+    } else {
+        let empty: Vec<String> = Vec::new();
+        let handles = vec![
+            std::thread::spawn({ let empty = empty.clone(); move || probe_version_only("gemini", "gemini", &empty, per_timeout) }),
+            std::thread::spawn({ let empty = empty.clone(); move || probe_version_only("claude", "claude", &empty, per_timeout) }),
+            std::thread::spawn({ let empty = empty.clone(); move || probe_version_only("cursor-agent", "cursor-agent", &empty, per_timeout) }),
+            std::thread::spawn(move || probe_tmux(per_timeout)),
+            std::thread::spawn(move || probe_git(per_timeout)),
+        ];
+        for h in handles {
+            let remain = global_cap.saturating_sub(started.elapsed().as_millis() as u64);
+            if remain == 0 { break; }
+            let r = h.join().unwrap_or_else(|_| ProbeResult { name: "unknown".into(), present: false, version: None, supports: BTreeMap::new(), timed_out: true, error: Some("thread_panic".into()) });
+            results.push(r);
+        }
+    }
 
     // Derive status and worst error code according to spec
     let mut any_timeout = false;
     let mut any_missing = false;
-    let mut degraded = false;
+    let degraded = false;
 
     for r in &results {
         if r.timed_out { any_timeout = true; }
         if !r.present { any_missing = true; }
     }
 
-    // Degraded if provider present but a key flag appears missing (heuristic)
-    for r in &results {
-        if r.present {
-            match r.name.as_str() {
-                "claude" => {
-                    // require output_format and session_id for OK
-                    if !r.supports.get("output_format").copied().unwrap_or(false) || !r.supports.get("session_id").copied().unwrap_or(false) {
-                        degraded = true;
-                    }
-                }
-                "cursor-agent" => {
-                    if !r.supports.get("resume").copied().unwrap_or(false) || !r.supports.get("create_chat").copied().unwrap_or(false) {
-                        degraded = true;
-                    }
-                }
-                "gemini" => {
-                    if !r.supports.get("interactive").copied().unwrap_or(false) {
-                        degraded = true;
-                    }
-                }
-                "tmux" | "git" => {}
-                _ => {}
-            }
-        }
-    }
+    // Relaxed policy: if version is obtained and not timed out, consider OK.
+    // Reserve DEGRADE for real timeouts (handled via any_timeout) or explicit probe errors in future.
 
     let status_text = if any_missing {
         "KO"
@@ -1593,7 +1576,7 @@ providers:
     Ok(())
 }
 
-fn run_session_cleanup(project_path_opt: Option<&str>, dry_run: bool, format: Format) -> Result<(), Box<dyn std::error::Error>> {
+fn run_session_cleanup(_project_path_opt: Option<&str>, dry_run: bool, format: Format) -> Result<(), Box<dyn std::error::Error>> {
     let db_path = default_db_path();
     let conn = open_or_create_db(&db_path)?;
     

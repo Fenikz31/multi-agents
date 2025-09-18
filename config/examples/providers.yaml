@@ -1,0 +1,31 @@
+# Example providers configuration (do not overwrite existing config)
+
+schema_version: 1
+
+gemini:
+  binary: gemini
+  oneshot:
+    template: |
+      {{binary}} chat --model {{model}} --input "{{message}}" --project {{project}} --agent {{agent}}
+  repl:
+    template: |
+      {{binary}} chat --model {{model}} --repl --project {{project}} --agent {{agent}}
+
+claude:
+  binary: claude
+  oneshot:
+    template: |
+      {{binary}} code --model {{model}} --message "{{message}}" --session new
+  repl:
+    template: |
+      {{binary}} code --model {{model}} --repl --session new
+
+cursor:
+  binary: cursor-agent
+  oneshot:
+    template: |
+      {{binary}} send --model {{model}} --output-format stream-json --message "{{message}}"
+  repl:
+    template: |
+      {{binary}} repl --model {{model}} --output-format stream-json
+
