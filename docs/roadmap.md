@@ -24,6 +24,7 @@ Milestones (M0–M9)
 - M3 Session Resume
   - Commands: `session list`, `session resume`.
   - Must: Claude `--session-id` reuse; Cursor `create-chat`/`--resume`; Gemini internal ID.
+  - Intégration: `send` réutilise/auto-crée les sessions, met à jour `last_activity` et `provider_session_id`. `session cleanup` supprime >24h.
 - M4 tmux Agents (REPL)
   - Commands: `agent run|attach|stop`.
   - Must: pane exists; NDJSON logs appended (`start`, `stdout_line`, `end`).

@@ -28,13 +28,19 @@ Commands
 - `multi-agents agent add --project <name> --name <name> --role <role> --provider <prov> --model <model>`
   - Exit codes: 0 OK; 2 invalid_input; 7 db_error. Prints created IDs.
 - `multi-agents session start --project <name> --agent <name>` → prints `conversation_id=<id>`
-- `multi-agents session list --project <name>`
-- `multi-agents session resume --conversation-id <id>`
+- `multi-agents session list --project <name> [--agent <name>] [--provider <prov>] [--format text|json]`
+  - Liste les sessions par projet avec filtres. Par défaut `status=active`, `limit=50`, tri `created_at DESC`.
+  - Format `text` (table) ou `json` (objets). Retourne `id`, `provider`, `status`, `created_at`, `last_activity`, `provider_session_id`.
+- `multi-agents session resume --conversation-id <id> [--timeout-ms 5000]`
+  - Valide et reprend une session. Timeout 5s. Erreurs normalisées si `expired/invalid`.
+- `multi-agents session cleanup [--project-file <path>] [--dry-run] [--format text|json]`
+  - Supprime les sessions inactives (>24h) selon `last_activity` ou `created_at`. En `--dry-run`, affiche sans supprimer.
 - `multi-agents send [--project-file <path>] [--providers-file <path>] --to @role|@all|<agent> --message "..." [--timeout-ms <millis>] [--format text|json]`
   - Uses same path resolution as `config validate`. Missing → exit 6.
   - Optional: `--timeout-ms` overrides 120s default; `--format json` prints a minimal JSON status.
   - Shows a progress spinner by default; disable with `--no-progress`.
   - **Cursor headless**: automatically uses `--output-format stream-json` and parses `assistant.message.content[].text` deltas plus final `result` event for clean termination.
+  - Sessions: `--to <conversation_id>` cible une session existante. Sans session, création automatique par provider (Claude/Gemini ID valide, Cursor `create-chat`). Met à jour `last_activity` et, si disponible, `provider_session_id`.
 - `multi-agents agent run|attach|stop --project <name> --agent <name>`
 - `multi-agents broadcast --project <name> --message "..." --mode oneshot|repl`
 - `multi-agents tui --project <name>`
@@ -43,3 +49,4 @@ Commands
 Notes
 - Provider flags derive from `providers.yaml` and role allowlists in `project.yaml`.
 - Use `--verbose` for detailed diagnostics and queue state.
+ - Synchronisation automatique YAML → DB: à chaque `send`/`session start`, les projets/agents du `project.yaml` sont assurés en base (idempotent).
