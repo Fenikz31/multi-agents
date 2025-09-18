@@ -1,3 +1,40 @@
+## Errors and Timeouts — Canonical Spec
+
+### Exit codes (standardized)
+- 0: ok
+- 1: generic_error
+- 2: invalid_input
+- 3: provider_unavailable
+- 4: provider_cli_error
+- 5: timeout
+- 6: missing_config
+- 7: db_error
+- 8: tmux_error
+
+See machine-readable defaults in `config/defaults.yaml`.
+
+### Timeouts (defaults)
+- send: 120s
+- doctor: 2s per provider (10s global)
+- tmux action: 5s
+
+### tmux errors and timeouts policy
+- Any tmux command failure maps to exit code 8 (`tmux_error`) with cleaned stderr in the message.
+- Each tmux action (has-session, new-session, new-window, pipe-pane, kill-window, attach) is bounded by the tmux action timeout (default 5s). On exceed, return 5 (`timeout`).
+- One fast retry is allowed for race-prone sequences (e.g., new-session immediately followed by new-window).
+- Idempotency: killing a non-existent window returns code 0 with a warning; re-piping with `-o` is safe.
+
+### NDJSON logging constraints
+- Append-only; 1 JSON object per line; UTF‑8; no ANSI escapes.
+- Required fields at minimum (example subset): `ts`, `level`, `project_id`, `agent_role`, `agent_id`, `provider`, `event`, `text?`, `dur_ms?`, `broadcast_id?`, `session_id?`.
+
+### Provider-level errors (context)
+- Provider binary missing/unavailable: 3 (`provider_unavailable`).
+- Provider process returns non-zero: 4 (`provider_cli_error`) for one-shot; for REPL, treat as `end` with error state, then propagate 4 if startup fails.
+
+### Configuration detection
+- Missing `project.yaml`/`providers.yaml` resolved paths → 6 (`missing_config`). CLI should suggest `multi-agents config init` and show searched locations.
+
 # Error Codes and Default Timeouts (Canonical Spec)
 
 Status: Stable
