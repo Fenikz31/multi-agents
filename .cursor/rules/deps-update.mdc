@@ -1,0 +1,83 @@
+---
+alwaysApply: false
+description: Playbook de mise à jour contrôlée des dépendances (audit → PRs → CI → rollout)
+---
+
+### Playbook de mise à jour des dépendances
+
+Objectif: garder les dépendances à jour de manière sûre et traçable, sans casser la build.
+
+#### 0) Principes
+- Non-interactif par défaut, pas de secrets dans les logs.
+- Commits conventionnels; PRs petites, ciblées et atomiques.
+- TDD et CI comme garde-fous; pas de reformatage hors scope.
+
+#### 1) Audit & relevé des versions
+- Rust (workspace `crates/*`):
+  - Audit vulnérabilités: `cargo audit`.
+  - Détection d’obsolescence: `cargo outdated` (lecture uniquement à ce stade).
+- Node (si présent):
+  - `npm outdated` ou `pnpm outdated`/`yarn outdated`.
+- Playwright:
+  - Vérifier binaire/drivers: `playwright --version`.
+- Outils CI/containers:
+  - Relever versions et changelogs; éviter upgrades implicites.
+
+#### 2) Branching
+- Créer une branche par lot: `chore/deps-YYYYMMDD`.
+- En cas de correctifs critiques: `hotfix/security-<pkg>-<version>`.
+
+#### 3) Stratégie de lotissement
+- Ordre recommandé: sécurité → mineures → majeures.
+- Lot par famille technologique (ex: Rust core, Node tooling, E2E/Playwright).
+- Limiter la surface de changement pour faciliter le rollback.
+
+#### 4) Mise à jour contrôlée
+- Rust:
+  - Mettre à jour ciblé: `cargo update -p <crate>@<version>`.
+  - Si workspace: vérifier compatibilité features; recompiler tous les `crates/*`.
+- Node:
+  - Mettre à jour via gestionnaire choisi (respecter lockfile).
+  - Éviter les ranges trop larges; préférer versions explicites.
+- Playwright:
+  - Aligner package et binaire: `npx playwright install --with-deps` si nécessaire.
+
+#### 5) Tests & validations (obligatoires)
+- Unitaires/backend: JUnit 5 + Mockito + AssertJ.
+- Frontend: React Testing Library, `data-testid`, Web Vitals (si applicable).
+- Contrat API: valider OpenAPI; régénérer clients si le contrat a changé.
+- Lint & format: exécuter linters sans reformatage hors scope.
+
+#### 6) CI/CD
+- Pipeline doit exécuter: lint, tests unitaires, tests de contrat, build.
+- Bloquer la PR si échec de `cargo audit` (ou équivalent sécurité Node).
+- Publier changelog de compat bilité si bump majeur.
+
+#### 7) Commits & PRs
+- Message commit: `chore(deps): update <scope> to <version>`.
+- PR: inclure résumé des changements, liens vers changelogs et notes de rupture éventuelles.
+- Demander revue; pas de squash si plusieurs commits pertinents (garder granularité utile).
+
+#### 8) Rollout & suivi
+- Déployer progressivement (si applicable), surveiller métriques & erreurs.
+- En cas de régression: rollback au lot précédent (branches isolées facilitent).
+
+#### 9) Fréquence & automatisation
+- Cadence: hebdomadaire pour audits, bimensuelle pour mises à jour non-sécurité.
+- Automatiser relevé (`cargo audit`, `cargo outdated`, `npm outdated`) et rapport NDJSON.
+
+#### 10) Notes pratiques
+- Pour Rust, vérifier MSRV/compat features; éviter `anyhow`/`unwrap` non justifiés.
+- Pour Node, éviter upgrades majeurs groupés sans migration documentée.
+- Documenter toute migration avec exemples et impacts tests.
+
+#### Exemples de commandes (lecture/verification)
+```
+cargo audit
+cargo outdated
+npm outdated
+pnpm outdated
+yarn outdated
+playwright --version
+```
+

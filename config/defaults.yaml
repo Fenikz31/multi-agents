@@ -13,6 +13,6 @@ exit_codes:
 timeouts:
   send_ms: 120000
   doctor:
-    per_provider_ms: 2000
-    global_ms: 10000
+    per_provider_ms: 5000
+    global_ms: 20000
   tmux_action_ms: 5000

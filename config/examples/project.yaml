@@ -1,0 +1,38 @@
+# Example project configuration (do not overwrite existing config)
+
+schema_version: 1
+
+project:
+  id: demo
+  name: Demo Project
+
+agents:
+  - id: backend
+    name: Backend Agent
+    role: backend
+    provider: gemini
+    model: "2.0"
+    system_prompt: |
+      You are a backend-focused assistant. Keep answers concise.
+
+  - id: writer
+    name: Writer Agent
+    role: content
+    provider: claude
+    model: sonnet-4
+    system_prompt: |
+      You write high-quality, structured content.
+
+  - id: coder
+    name: Coder Agent
+    role: dev
+    provider: cursor
+    model: default
+    system_prompt: |
+      You help with coding tasks using Cursor-compatible JSON streaming.
+
+allowlists:
+  backend: ["gemini"]
+  content: ["claude"]
+  dev: ["cursor"]
+

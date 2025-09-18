@@ -1,0 +1,197 @@
+---
+alwaysApply: true
+description: Règles d'usage des outils MCP (git, memory, sequential-thinking, time, Context, perplexity-ask, playwright-mcp-server)
+---
+
+### Règles d'usage des outils MCP
+
+Ces règles définissent quand et comment utiliser les outils MCP disponibles dans ce projet: `git`, `memory`, `sequential-thinking`, `time`, `Context`, `perplexity-ask`, `playwright-mcp-server`.
+
+- Explication préalable: avant chaque utilisation d'un outil, expliquer brièvement pourquoi l'outil est pertinent pour l'étape en cours.
+- Chaînage: il est possible d'enchaîner plusieurs outils si nécessaire (ex: `Context` → `git` → `memory`).
+- Pertinence: n'utiliser un outil que s'il apporte une information/action nécessaire et non disponible autrement.
+
+#### 1. Outil `git`
+Quand l'utiliser:
+- Vérifier l'état du dépôt ou les modifications locales (équivalent `git status`).
+- Créer un commit, une branche, pousser/récupérer du code.
+- Explorer l'historique (`git log`, show, diff, branches).
+
+Ne pas l'utiliser pour:
+- Recherches sémantiques dans le code (voir `Context`), ou pour du grepping basique.
+
+#### 2. Outil `memory`
+Quand l'utiliser:
+- Stocker/rappeler des informations utiles au projet ou à la session (conventions, décisions, rappels, TODO persistants).
+- Mettre à jour/supprimer une mémoire si elle devient obsolète ou contredite.
+
+Ne pas l'utiliser pour:
+- Remplacer la documentation versionnée (voir `[docs/]`(mdc:docs/)).
+
+#### 3. Outil `sequential-thinking`
+Quand l'utiliser:
+- La tâche est complexe et nécessite une planification pas-à-pas, une décomposition en étapes logiques, ou une vérification d'hypothèses.
+
+Ne pas l'utiliser pour:
+- Des actions triviales en une seule étape.
+
+#### 4. Outil `time`
+Quand l'utiliser:
+- Une opération dépend de la date/heure actuelle (horodatage, planning, calculs de délais/durations, conversions de fuseaux horaires).
+
+#### 5. Outil `Context`
+Quand l'utiliser:
+- Récupérer ou injecter du contexte du projet (fichiers, config, code existant), parcourir la structure, lire des docs, trouver des symboles/implémentations.
+- Avant de répondre sur l'architecture ou l'état du codebase, ou pour lister/ouvrir des fichiers.
+
+Ne pas l'utiliser pour:
+- Recherches web externes (voir `perplexity-ask`).
+
+#### 6. Outil `perplexity-ask`
+Quand l'utiliser:
+- Recherches externes ou références documentées (APIs, comparaisons de librairies, meilleures pratiques) qui dépassent le contexte local du dépôt.
+
+Ne pas l'utiliser pour:
+- Informations déjà présentes dans le codebase ou la documentation locale (préférer `Context`).
+
+#### 7. Outil `playwright-mcp-server`
+Quand l'utiliser:
+- Automatiser/tester une interface (UI, navigation web, actions utilisateur), générer un test end-to-end, simuler un parcours utilisateur.
+- Prendre des captures, interagir avec des iframes, vérifier des réponses réseau.
+
+Ne pas l'utiliser pour:
+- Tests purement unitaires sans UI.
+
+### Bonnes pratiques générales
+
+- Minimalisme: n'utiliser que les outils nécessaires à l'étape en cours.
+- Traçabilité: annoncer rapidement la raison d'usage de l'outil avant exécution.
+- Parallélisation: lorsque pertinent et indépendant, exécuter des opérations de lecture/recherche en parallèle pour accélérer (ex: multiple lectures de fichiers via `Context`).
+- Sécurité: ne pas exposer de secrets; utiliser des variables d'environnement pour toute donnée sensible.
+
+### Références projet utiles
+
+- Orchestrateur CLI (Rust): `[crates/cli/src/main.rs]`(mdc:crates/cli/src/main.rs)
+- Documentation: `[docs/overview.md]`(mdc:docs/overview.md), `[docs/product-brief.md]`(mdc:docs/product-brief.md), `[docs/data-model.md]`(mdc:docs/data-model.md), `[docs/cli-reference.md]`(mdc:docs/cli-reference.md), `[docs/roadmap.md]`(mdc:docs/roadmap.md)
+- Configuration: `[config/defaults.yaml]`(mdc:config/defaults.yaml), `[config/providers.yaml]`(mdc:config/providers.yaml), `[config/project.yaml]`(mdc:config/project.yaml)
+- Logs NDJSON: `[logs/full-demo/backend.ndjson]`(mdc:logs/full-demo/backend.ndjson), `[logs/full-demo/frontend.ndjson]`(mdc:logs/full-demo/frontend.ndjson), `[logs/full-demo/devops.ndjson]`(mdc:logs/full-demo/devops.ndjson), `[logs/full-demo/supervisor.ndjson]`(mdc:logs/full-demo/supervisor.ndjson)
+
+### Exemples d'enchaînements
+
+- Architecture: `Context` pour lire `[docs/overview.md]` → `Context` pour ouvrir `crates/cli/src/main.rs` → synthèse.
+- Commit daté: `git` pour créer la branche → `time` pour l'horodatage dans le message → `git` commit/push.
+- Recherche externe: `Context` confirme absence locale → `perplexity-ask` pour best practices → retour et mise à jour via `memory` si décision prise.
+
+### Matrix décisionnelle (sélection rapide d'outil)
+
+| Besoin | Outil recommandé | Notes |
+| --- | --- | --- |
+| Lire fichiers/config/doc locaux | `Context` | Privilégier recherche sémantique. |
+| Trouver une occurrence exacte/regex | `grep` (ripgrep) | Préférer exact match pour symboles/noms. |
+| Opérer sur dépôt (status/commit/branche/log) | `git` | Toujours non-interactif; conventions de branches. |
+| Planifier tâche complexe | `sequential-thinking` | Décomposer étapes; vérifier hypothèses. |
+| Obtenir heure/date/convertir TZ | `time` | Pour horodatage de commit, planning. |
+| Recherche externe/documentée | `perplexity-ask` | Exiger citations; vérifier conflits avec docs locales. |
+| Tester/automatiser UI | `playwright-mcp-server` | Headless, timeouts, captures sur échec. |
+
+### Stratégie d'erreur et de repli
+
+- `perplexity-ask` indisponible/timeout: réduire portée, réessayer une fois; fallback sur `Context` (docs locales). Si divergence, privilégier sources internes et ouvrir une tâche pour arbitrage.
+- Conflits `git`: stopper l'action, créer branche `feature/` ou `hotfix/`, résoudre conflits explicitement, puis recommencer. Ne jamais écraser sans validation.
+- `playwright-mcp-server` indisponible: mock HTTP côté intégration; capturer logs réseau; reprogrammer E2E.
+- Absence de ressource locale via `Context`: confirmer chemin, élargir recherche, sinon escalader en documentation manquante.
+
+### Parallélisation et limites
+
+- Paralléliser les lectures/recherches indépendantes (`Context`, `grep`) et les explorations multiples. Limiter à 3–5 actions parallèles.
+- Séquencer quand la sortie A paramètre l'entrée B.
+- Appliquer des timeouts raisonnables côté outils réseau; éviter les jobs infinis.
+
+### Non-interactivité par défaut
+
+- Toutes les commandes/opérations supposent un mode non-interactif: utiliser drapeaux de confirmation, éviter les pagers, rediriger la sortie si nécessaire.
+
+### Sécurité & secrets
+
+- Ne pas afficher ni consigner tokens, cookies, secrets. Utiliser variables d'environnement. Masquer/redacter toute donnée sensible dans les logs.
+
+### Traçabilité (logs NDJSON)
+
+- Avant l'usage d'un outil: expliquer la raison.
+- Après: consigner outil, raison, entrée(s) pertinentes et statut (succès/échec) selon `docs/logging.md`.
+
+### Alignement avec le workflow de développement
+
+- Explorer → Planifier → TDD → Commit (RED) → Coder (GREEN) → Refactor → Commit → MR.
+- `Context` majoritairement en Explorer; `sequential-thinking` en Planifier; `git` en Commit; `playwright-mcp-server` pour tests E2E; `perplexity-ask` pour références externes.
+
+### Règles spécifiques `playwright-mcp-server`
+
+- Headless par défaut, timeouts explicites, attendre des sélecteurs stables.
+- Capturer screenshots/HTML/logs sur échec; isoler chaque test; nettoyer l'état.
+
+### `perplexity-ask`: citations et vérification
+
+- Exiger des citations. Pour sujets sécurité/contrat API, double vérification croisée et fallback doc interne en cas de conflit.
+
+### `Context` vs `grep`
+
+- `Context` pour recherche sémantique/structurelle et navigation du projet.
+- `grep` (exact match/regex) pour symboles précis, constantes, erreurs exactes.
+
+### Politique d'édition de fichiers
+
+- Préserver indentation existante et style; ne pas reformatter hors scope.
+- Vérifier lint après chaque édition.
+
+### Branches & commits
+
+- Conventions de branches: `feature/`, `fix/`, `hotfix/`, `refactor/`.
+- Commits conventionnels; possibilité d'horodatage via `time`. Préférer ajouts ciblés (`add -p`).
+
+### Garde-fous de conformité
+
+- Respect de la vie privée, CSP, prévention XSS, pas de fichiers binaires volumineux, pas de secrets en clair.
+
+### Cas d'usage complexes
+
+- Génération et validation de clients API depuis OpenAPI; tests de contrat.
+- Lecture/écriture SQLite selon conventions du projet.
+- Sessions/broadcasts et logs multi-agents (voir `sessions-broadcasts`).
+
+### Exemples opérationnels
+
+- Sélection d'outil:
+  - Lire une clé de config locale → `Context` sur `config/*.yaml`.
+  - Retrouver identifiant de fonction exact → `grep`.
+  - Créer branche et committer → `git` (non-interactif).
+  - Comparer librairies → `perplexity-ask` avec citations.
+- Non-interactif + logs:
+  - Expliquer la raison → exécuter avec flags non-interactifs → consigner NDJSON.
+- Playwright:
+  - Headless, timeouts explicites, attente stable, capture sur échec, isolation.
+
+### Vérification des versions et mises à jour (outils/packages)
+
+- Objectif: s'assurer que les outils et dépendances sont à jour sans risquer de casser la build.
+- Quand: en phase Explorer/Planifier et avant release.
+- Outils/approche:
+  - Dépendances Rust (workspace `crates/*`):
+    - Audit vulnérabilités: `cargo audit`.
+    - Versions obsolètes: `cargo outdated` (lecture; ne pas auto-upgrader dans la même étape).
+  - Dépendances Node (si présentes):
+    - Lister obsolètes: `npm outdated` ou `pnpm outdated`/`yarn outdated`.
+    - Verrouillage via lockfile, upgrades contrôlés par PR dédiée.
+  - Playwright:
+    - Vérifier version binaire et drivers; exécuter `playwright --version` et aligner packages.
+  - Outils système/CI:
+    - Vérifier versions dans pipelines/containers; éviter upgrades implicites.
+  - Références externes:
+    - Utiliser `perplexity-ask` pour confirmer dernière version stable recommandée seulement si nécessaire; préférer d'abord sources officielles/changelogs.
+- Bonnes pratiques:
+  - Ne pas appliquer de mises à jour automatiques durant la phase de vérification.
+  - Créer une branche dédiée `chore/deps-<date>`; mettre à jour par familles (sécurité, mineures, majeures) avec CI verte.
+  - Documenter breaking changes et ajuster les tests.
+
+Pour le playbook complet et les commandes, voir `[deps-update.mdc]`(mdc:.cursor/rules/deps-update.mdc).
+
