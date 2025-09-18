@@ -1,18 +1,24 @@
 schema_version: 1
 providers:
   claude:
-    cmd: "claude"
+    cmd: "/home/fenikz/.nvm/versions/node/v24.7.0/bin/claude"
+    version_args: ["--version"]
+    help_args: ["--help"]
     oneshot_args: ["-p","--print","--output-format","text","{prompt}","--session-id","{session_id}","--allowed-tools","{allowed_tools}","--permission-mode","plan"]
     repl_args: ["repl"]
     allowlist_flag: "--allowed-tools"
   cursor-agent:
-    cmd: "cursor-agent"
+    cmd: "/home/fenikz/.local/bin/cursor-agent"
+    version_args: ["--version"]
+    help_args: ["--help"]
     oneshot_args: ["-p","--output-format","text","--resume","{chat_id}","{prompt}"]
     repl_args: ["agent","--resume","{chat_id}"]
     create_chat_args: ["create-chat"]
     forbid_flags: ["--force"]
   gemini:
-    cmd: "gemini"
+    cmd: "/home/fenikz/.nvm/versions/node/v24.7.0/bin/gemini"
+    version_args: ["--version"]
+    help_args: ["--help"]
     oneshot_args: ["{prompt}"]
     repl_args: ["-i","{system_prompt}","--allowed-tools","{allowed_tools}"]
     allowlist_flag: "--allowed-tools"
