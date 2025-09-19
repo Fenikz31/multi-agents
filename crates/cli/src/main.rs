@@ -274,7 +274,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn run_config_validate(project_path_opt: Option<&str>, providers_path_opt: Option<&str>, format: Format) -> Result<(), Box<dyn std::error::Error>> {
     let (project_path, providers_path) = match resolve_config_paths(project_path_opt, providers_path_opt) {
         Ok(p) => p,
-        Err(msg) => return exit_with(6, msg),
+        Err(msg) => return handle_missing_config(msg),
     };
     let proj_s = fs::read_to_string(&project_path)?;
     let prov_s = fs::read_to_string(&providers_path)?;
@@ -364,7 +364,7 @@ const MAX_CONCURRENCY: usize = 3;
 fn run_send(project_path_opt: Option<&str>, providers_path_opt: Option<&str>, to: &str, message: &str, session_id_opt: Option<&str>, chat_id_opt: Option<&str>, timeout_ms_flag: Option<u64>, format: Format, progress: bool) -> Result<(), Box<dyn std::error::Error>> {
     let (project_path, providers_path) = match resolve_config_paths(project_path_opt, providers_path_opt) {
         Ok(p) => p,
-        Err(msg) => return exit_with(6, msg),
+        Err(msg) => return handle_missing_config(msg),
     };
     let proj_s = fs::read_to_string(&project_path)?;
     let prov_s = fs::read_to_string(&providers_path)?;
@@ -929,7 +929,7 @@ fn uuid_v4_like() -> String {
 fn run_session_start(project_path_opt: Option<&str>, providers_path_opt: Option<&str>, agent_name: &str) -> Result<(), Box<dyn std::error::Error>> {
     let (project_path, providers_path) = match resolve_config_paths(project_path_opt, providers_path_opt) {
         Ok(p) => p,
-        Err(msg) => return exit_with(6, msg),
+        Err(msg) => return handle_missing_config(msg),
     };
     let proj_s = fs::read_to_string(&project_path)?;
     let prov_s = fs::read_to_string(&providers_path)?;
@@ -1021,7 +1021,7 @@ fn run_session_start(project_path_opt: Option<&str>, providers_path_opt: Option<
 fn run_session_list(project_path_opt: Option<&str>, project_name_opt: Option<&str>, agent_filter: Option<&str>, provider_filter: Option<&str>, format: Format) -> Result<(), Box<dyn std::error::Error>> {
     let (project_path, _providers_path) = match resolve_config_paths(project_path_opt, None) {
         Ok(p) => p,
-        Err(msg) => return exit_with(6, msg),
+        Err(msg) => return handle_missing_config(msg),
     };
     
     // Determine project name (default to current directory name)
@@ -1554,6 +1554,35 @@ fn ndjson_self_check(path: &str) -> Result<Value, String> {
 
 // ---- config resolution & init ----
 
+/// Generate first-run guidance message for missing configuration
+fn generate_first_run_guidance() -> String {
+    format!(
+        "\n🚀 First-time setup detected! Follow these steps:\n\
+         \n\
+         1) Check your environment:\n\
+            multi-agents doctor\n\
+         \n\
+         2) Initialize configuration:\n\
+            multi-agents config init [--dir ./config]\n\
+         \n\
+         3) Initialize database:\n\
+            multi-agents db init\n\
+         \n\
+         4) Add your project and agents:\n\
+            multi-agents project add --name <project-name>\n\
+            multi-agents agent add --project <project-name> --name <agent-name> --role <role> --provider <provider> --model <model>\n\
+         \n\
+         See docs/workflows.md for detailed examples."
+    )
+}
+
+/// Handle missing configuration with first-run guidance (Issue #35)
+fn handle_missing_config<T>(error_msg: String) -> Result<T, Box<dyn std::error::Error>> {
+    let guidance = generate_first_run_guidance();
+    let full_message = format!("{}{}", error_msg, guidance);
+    exit_with(6, full_message)
+}
+
 /// Resolve config paths from (flags -> env -> defaults)
 /// ENV: MULTI_AGENTS_PROJECT_FILE, MULTI_AGENTS_PROVIDERS_FILE, MULTI_AGENTS_CONFIG_DIR
 fn resolve_config_paths(project_flag: Option<&str>, providers_flag: Option<&str>) -> Result<(String, String), String> {
@@ -1950,7 +1979,7 @@ fn run_agent_run(
     // Resolve config paths
     let (project_path, providers_path) = match resolve_config_paths(project_file, providers_file) {
         Ok(p) => p,
-        Err(msg) => return exit_with(6, msg),
+        Err(msg) => return handle_missing_config(msg),
     };
     
     // Load configurations
@@ -2094,7 +2123,7 @@ fn run_agent_attach(
     // Resolve config paths
     let (project_path, _) = match resolve_config_paths(project_file, None) {
         Ok(p) => p,
-        Err(msg) => return exit_with(6, msg),
+        Err(msg) => return handle_missing_config(msg),
     };
     
     // Load project configuration
@@ -2174,7 +2203,7 @@ fn run_agent_stop(
     // Resolve config paths
     let (project_path, _) = match resolve_config_paths(project_file, None) {
         Ok(p) => p,
-        Err(msg) => return exit_with(6, msg),
+        Err(msg) => return handle_missing_config(msg),
     };
     
     // Load project configuration
@@ -2942,5 +2971,121 @@ mod tests {
         assert!(TMUX_RETRY_DELAY_MS >= 50, 
                "TMUX_RETRY_DELAY_MS should be >= 50ms to avoid overwhelming, got {}ms", 
                TMUX_RETRY_DELAY_MS);
+    }
+
+    #[test]
+    fn config_autodetect_first_run_guidance() {
+        // Test first-run guidance message generation (Issue #35)
+        let guidance = generate_first_run_guidance();
+        
+        // Check that guidance contains all required steps
+        assert!(guidance.contains("🚀 First-time setup detected!"), "Should contain setup message");
+        assert!(guidance.contains("multi-agents doctor"), "Should mention doctor command");
+        assert!(guidance.contains("multi-agents config init"), "Should mention config init");
+        assert!(guidance.contains("multi-agents db init"), "Should mention db init");
+        assert!(guidance.contains("multi-agents project add"), "Should mention project add");
+        assert!(guidance.contains("multi-agents agent add"), "Should mention agent add");
+        assert!(guidance.contains("docs/workflows.md"), "Should reference documentation");
+        
+        // Check that guidance is properly formatted
+        assert!(guidance.starts_with("\n"), "Should start with newline");
+        assert!(guidance.contains("1) Check your environment:"), "Should have numbered steps");
+        assert!(guidance.contains("2) Initialize configuration:"), "Should have numbered steps");
+        assert!(guidance.contains("3) Initialize database:"), "Should have numbered steps");
+        assert!(guidance.contains("4) Add your project and agents:"), "Should have numbered steps");
+    }
+
+    #[test]
+    fn config_autodetect_resolution_order() {
+        // Test config resolution order: flags > ENV > defaults (Issue #35)
+        let temp_dir = std::env::temp_dir().join("multi-agents-test-config");
+        let _ = std::fs::create_dir_all(&temp_dir);
+        
+        // Create test config files
+        let project_file = temp_dir.join("project.yaml");
+        let providers_file = temp_dir.join("providers.yaml");
+        std::fs::write(&project_file, "project: test").unwrap();
+        std::fs::write(&providers_file, "providers: {}").unwrap();
+        
+        // Test 1: Flags should take precedence
+        let (proj_path, prov_path) = resolve_config_paths(
+            Some(project_file.to_str().unwrap()),
+            Some(providers_file.to_str().unwrap())
+        ).unwrap();
+        assert_eq!(proj_path, project_file.to_str().unwrap());
+        assert_eq!(prov_path, providers_file.to_str().unwrap());
+        
+        // Test 2: ENV vars should work when flags are None
+        std::env::set_var("MULTI_AGENTS_PROJECT_FILE", project_file.to_str().unwrap());
+        std::env::set_var("MULTI_AGENTS_PROVIDERS_FILE", providers_file.to_str().unwrap());
+        
+        let (proj_path, prov_path) = resolve_config_paths(None, None).unwrap();
+        assert_eq!(proj_path, project_file.to_str().unwrap());
+        assert_eq!(prov_path, providers_file.to_str().unwrap());
+        
+        // Test 3: Config dir should work
+        std::env::remove_var("MULTI_AGENTS_PROJECT_FILE");
+        std::env::remove_var("MULTI_AGENTS_PROVIDERS_FILE");
+        std::env::set_var("MULTI_AGENTS_CONFIG_DIR", temp_dir.to_str().unwrap());
+        
+        let (proj_path, prov_path) = resolve_config_paths(None, None).unwrap();
+        assert_eq!(proj_path, project_file.to_str().unwrap());
+        assert_eq!(prov_path, providers_file.to_str().unwrap());
+        
+        // Cleanup
+        std::env::remove_var("MULTI_AGENTS_CONFIG_DIR");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn config_autodetect_missing_config_error() {
+        // Test missing config error handling (Issue #35)
+        let result = resolve_config_paths(Some("/nonexistent/project.yaml"), Some("/nonexistent/providers.yaml"));
+        assert!(result.is_err(), "Should return error for missing config files");
+        
+        let error_msg = result.unwrap_err();
+        assert!(error_msg.contains("project config not found"), "Should mention project config");
+        assert!(error_msg.contains("--project-file"), "Should mention project file flag");
+        assert!(error_msg.contains("MULTI_AGENTS_PROJECT_FILE"), "Should mention env var");
+        
+        // Test providers config error separately - need to provide a valid project file first
+        let temp_dir = std::env::temp_dir().join("multi-agents-test-providers-error");
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let project_file = temp_dir.join("project.yaml");
+        std::fs::write(&project_file, "project: test").unwrap();
+        
+        let result2 = resolve_config_paths(Some(project_file.to_str().unwrap()), Some("/nonexistent/providers.yaml"));
+        assert!(result2.is_err(), "Should return error for missing providers config");
+        
+        let error_msg2 = result2.unwrap_err();
+        assert!(error_msg2.contains("providers config not found"), "Should mention providers config");
+        assert!(error_msg2.contains("--providers-file"), "Should mention providers file flag");
+        assert!(error_msg2.contains("MULTI_AGENTS_PROVIDERS_FILE"), "Should mention env var");
+        
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn config_autodetect_file_extensions() {
+        // Test that both .yaml and .yml extensions are supported (Issue #35)
+        let temp_dir = std::env::temp_dir().join("multi-agents-test-extensions");
+        let _ = std::fs::create_dir_all(&temp_dir);
+        
+        // Create test config files with .yml extension
+        let project_file = temp_dir.join("project.yml");
+        let providers_file = temp_dir.join("providers.yml");
+        std::fs::write(&project_file, "project: test").unwrap();
+        std::fs::write(&providers_file, "providers: {}").unwrap();
+        
+        std::env::set_var("MULTI_AGENTS_CONFIG_DIR", temp_dir.to_str().unwrap());
+        
+        let (proj_path, prov_path) = resolve_config_paths(None, None).unwrap();
+        assert_eq!(proj_path, project_file.to_str().unwrap());
+        assert_eq!(prov_path, providers_file.to_str().unwrap());
+        
+        // Cleanup
+        std::env::remove_var("MULTI_AGENTS_CONFIG_DIR");
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }
