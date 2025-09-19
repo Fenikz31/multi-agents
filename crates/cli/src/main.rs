@@ -4,7 +4,7 @@ use config_model::{
 };
 use db::{open_or_create_db, insert_project, insert_agent, find_project_id, IdOrName, 
          ClaudeSessionManager, CursorSessionManager, GeminiSessionManager, SessionManager, 
-         list_sessions, SessionFilters, SessionStatus, sync_project_from_config};
+         list_sessions, SessionFilters, SessionStatus, sync_project_from_config, cleanup_repl_sessions};
 use rusqlite::params;
 use std::collections::BTreeMap;
 use std::fs;
@@ -1049,6 +1049,7 @@ fn run_session_list(project_path_opt: Option<&str>, project_name_opt: Option<&st
         agent_id: None,
         provider: provider_filter.map(|s| s.to_string()),
         status: Some(SessionStatus::Active),
+        session_type: None, // Include both chat and repl sessions
         limit: Some(50), // Default limit
         offset: Some(0),
     };
@@ -1686,13 +1687,15 @@ fn run_session_cleanup(_project_path_opt: Option<&str>, dry_run: bool, format: F
         )
     };
     
-    let expired_sessions = if dry_run {
-        // Query expired sessions without deleting
+    // Clean up REPL sessions (Issue #36)
+    let repl_cleaned = if dry_run {
+        // Query REPL sessions that would be cleaned up
         let mut stmt = conn.prepare(
-            "SELECT id, project_id, agent_id, provider, created_at, last_activity 
+            "SELECT id, project_id, agent_id, provider, created_at, last_activity, type
              FROM sessions 
-             WHERE (last_activity IS NULL OR last_activity < ?1) 
-             AND created_at < ?1"
+             WHERE type = 'repl' 
+             AND (last_activity < ?1 OR created_at < ?1) 
+             AND status = 'active'"
         )?;
         
         let session_iter = stmt.query_map(params![&cutoff_time], |row| {
@@ -1702,22 +1705,57 @@ fn run_session_cleanup(_project_path_opt: Option<&str>, dry_run: bool, format: F
                 "agent_id": row.get::<_, String>(2)?,
                 "provider": row.get::<_, String>(3)?,
                 "created_at": row.get::<_, String>(4)?,
-                "last_activity": row.get::<_, Option<String>>(5)?
+                "last_activity": row.get::<_, Option<String>>(5)?,
+                "type": row.get::<_, String>(6)?
             }))
         })?;
         
         session_iter.collect::<Result<Vec<_>, _>>()?
     } else {
-        // Actually delete expired sessions
+        // Actually clean up REPL sessions
+        let cleaned_count = cleanup_repl_sessions(&conn)?;
+        
+        vec![serde_json::json!({
+            "repl_cleaned_count": cleaned_count,
+            "cutoff_time": cutoff_time
+        })]
+    };
+    
+    let expired_sessions = if dry_run {
+        // Query expired sessions without deleting
+        let mut stmt = conn.prepare(
+            "SELECT id, project_id, agent_id, provider, created_at, last_activity, type
+             FROM sessions 
+             WHERE (last_activity IS NULL OR last_activity < ?1) 
+             AND created_at < ?1
+             AND type = 'chat'"
+        )?;
+        
+        let session_iter = stmt.query_map(params![&cutoff_time], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "project_id": row.get::<_, String>(1)?,
+                "agent_id": row.get::<_, String>(2)?,
+                "provider": row.get::<_, String>(3)?,
+                "created_at": row.get::<_, String>(4)?,
+                "last_activity": row.get::<_, Option<String>>(5)?,
+                "type": row.get::<_, String>(6)?
+            }))
+        })?;
+        
+        session_iter.collect::<Result<Vec<_>, _>>()?
+    } else {
+        // Actually delete expired chat sessions
         let deleted_count = conn.execute(
             "DELETE FROM sessions 
              WHERE (last_activity IS NULL OR last_activity < ?1) 
-             AND created_at < ?1",
+             AND created_at < ?1
+             AND type = 'chat'",
             params![&cutoff_time]
         )?;
         
         vec![serde_json::json!({
-            "deleted_count": deleted_count,
+            "chat_deleted_count": deleted_count,
             "cutoff_time": cutoff_time
         })]
     };
@@ -1725,27 +1763,36 @@ fn run_session_cleanup(_project_path_opt: Option<&str>, dry_run: bool, format: F
     match format {
         Format::Text => {
             if dry_run {
-                println!("Dry run: Found {} expired sessions", expired_sessions.len());
+                println!("Dry run: Found {} expired chat sessions", expired_sessions.len());
                 for session in &expired_sessions {
-                    println!("  - {} ({})", session["id"], session["provider"]);
+                    println!("  - {} ({}) [chat]", session["id"], session["provider"]);
+                }
+                println!("Dry run: Found {} expired REPL sessions", repl_cleaned.len());
+                for session in &repl_cleaned {
+                    println!("  - {} ({}) [repl]", session["id"], session["provider"]);
                 }
             } else {
-                if let Some(result) = expired_sessions.first() {
-                    println!("Cleaned up {} expired sessions", result["deleted_count"]);
-                }
+                let chat_result = expired_sessions.first();
+                let repl_result = repl_cleaned.first();
+                let chat_count = chat_result.and_then(|r| r["chat_deleted_count"].as_u64()).unwrap_or(0);
+                let repl_count = repl_result.and_then(|r| r["repl_cleaned_count"].as_u64()).unwrap_or(0);
+                println!("Cleaned up {} expired chat sessions", chat_count);
+                println!("Marked {} REPL sessions as expired", repl_count);
             }
         }
         Format::Json => {
             let output = if dry_run {
                 serde_json::json!({
                     "dry_run": true,
-                    "expired_sessions": expired_sessions,
+                    "expired_chat_sessions": expired_sessions,
+                    "expired_repl_sessions": repl_cleaned,
                     "cutoff_time": cutoff_time
                 })
             } else {
                 serde_json::json!({
                     "dry_run": false,
-                    "result": expired_sessions.first().unwrap_or(&serde_json::Value::Null)
+                    "chat_result": expired_sessions.first().unwrap_or(&serde_json::Value::Null),
+                    "repl_result": repl_cleaned.first().unwrap_or(&serde_json::Value::Null)
                 })
             };
             println!("{}", serde_json::to_string_pretty(&output)?);
