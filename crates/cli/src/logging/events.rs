@@ -98,6 +98,57 @@ impl NdjsonEvent {
             session_id: None,
         }
     }
+
+    /// Create a categorized failure metrics event
+    pub fn new_failure_metrics(
+        project_id: &str,
+        agent_role: &str,
+        agent_id: &str,
+        provider: &str,
+        failure_category: &str,
+        failure_type: &str,
+        dur_ms: u64,
+        error_details: &str
+    ) -> Self {
+        let text = Some(format!("{}: {} - {}", failure_category, failure_type, error_details));
+        
+        Self {
+            ts: chrono::Utc::now().to_rfc3339(),
+            level: "error".to_string(),
+            project_id: project_id.to_string(),
+            agent_role: agent_role.to_string(),
+            agent_id: agent_id.to_string(),
+            provider: provider.to_string(),
+            event: "metrics".to_string(),
+            text,
+            dur_ms: Some(dur_ms),
+            broadcast_id: None,
+            session_id: None,
+        }
+    }
+
+    /// Create a start event with broadcast_id for M5 preparation
+    pub fn new_start_with_broadcast(
+        project_id: &str, 
+        agent_role: &str, 
+        agent_id: &str, 
+        provider: &str,
+        broadcast_id: Option<&str>
+    ) -> Self {
+        Self {
+            ts: chrono::Utc::now().to_rfc3339(),
+            level: "info".to_string(),
+            project_id: project_id.to_string(),
+            agent_role: agent_role.to_string(),
+            agent_id: agent_id.to_string(),
+            provider: provider.to_string(),
+            event: "start".to_string(),
+            text: None,
+            dur_ms: None,
+            broadcast_id: broadcast_id.map(|s| s.to_string()),
+            session_id: None,
+        }
+    }
 }
 
 /// Remove ANSI escape sequences from text
