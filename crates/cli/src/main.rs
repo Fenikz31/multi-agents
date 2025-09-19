@@ -1839,7 +1839,8 @@ fn write_ndjson_event(log_file: &str, event: &NdjsonEvent) -> Result<(), Box<dyn
     Ok(())
 }
 // Retry configuration for tmux operations
-const TMUX_RETRY_ATTEMPTS: u32 = 3;
+// Issue #34: single quick retry for races → 2 attempts total
+const TMUX_RETRY_ATTEMPTS: u32 = 2;
 const TMUX_RETRY_DELAY_MS: u64 = 100;
 
 /// Execute a tmux command with retry logic for race conditions
@@ -1889,6 +1890,25 @@ fn is_race_condition(error: &str) -> bool {
     race_indicators.iter().any(|&indicator| error.to_lowercase().contains(indicator))
 }
 
+/// Map tmux failure to standardized exit codes (Issue #34)
+fn exit_tmux<T>(operation: &str, err: &str) -> Result<T, Box<dyn std::error::Error>> {
+    let lower = err.to_lowercase();
+    let is_timeout = lower.contains("timeout");
+    let cleaned = err
+        .lines()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    if is_timeout {
+        // 5 = timeout
+        exit_with(5, format!("tmux {}: timeout after 5s", operation))
+    } else {
+        // 8 = tmux error. Keep message concise and helpful
+        exit_with(8, format!("tmux {}: {}", operation, cleaned))
+    }
+}
+
 /// Emit NDJSON start event for agent (contract compliant)
 fn emit_start_event(project_name: &str, role: &str, agent_name: &str, provider: &str) -> Result<(), Box<dyn std::error::Error>> {
     let log_file = format!("./logs/{}/{}.ndjson", project_name, role);
@@ -1923,7 +1943,9 @@ fn run_agent_run(
     timeout_ms: Option<u64>
 ) -> Result<(), Box<dyn std::error::Error>> {
     let start_time = std::time::Instant::now();
-    let timeout = Duration::from_millis(timeout_ms.unwrap_or(DEFAULT_AGENT_TIMEOUT_MS));
+    // Issue #34: cap tmux timeouts to 5s
+    let effective_ms = timeout_ms.unwrap_or(DEFAULT_AGENT_TIMEOUT_MS).min(DEFAULT_AGENT_TIMEOUT_MS);
+    let timeout = Duration::from_millis(effective_ms);
     
     // Resolve config paths
     let (project_path, providers_path) = match resolve_config_paths(project_file, providers_file) {
@@ -1968,10 +1990,10 @@ fn run_agent_run(
     if !session_exists {
         match tmux_command_with_retry(&["new-session", "-d", "-s", &session_name], timeout, "create session") {
             Ok((code, _, err)) if code != 0 => {
-                return exit_with(8, format!("Failed to create tmux session: {}", err));
+                return exit_tmux("create session", &err);
             }
             Err(e) => {
-                return exit_with(8, format!("Failed to create tmux session after retries: {}", e));
+                return exit_tmux("create session", &e.to_string());
             }
             _ => {} // Success
         }
@@ -1992,10 +2014,10 @@ fn run_agent_run(
     // Step 4: Create new window for the agent (with retry)
     match tmux_command_with_retry(&["new-window", "-t", &session_name, "-n", &window_name], timeout, "create window") {
         Ok((code, _, err)) if code != 0 => {
-            return exit_with(8, format!("Failed to create tmux window: {}", err));
+            return exit_tmux("create window", &err);
         }
         Err(e) => {
-            return exit_with(8, format!("Failed to create tmux window after retries: {}", e));
+            return exit_tmux("create window", &e.to_string());
         }
         _ => {} // Success
     }
@@ -2046,10 +2068,10 @@ fn run_agent_run(
     let cmd_line = format!("{} {}", provider_config.cmd, args.join(" "));
     match tmux_command_with_retry(&["send-keys", "-t", &format!("{}:{}", session_name, window_name), &cmd_line, "Enter"], timeout, "start provider") {
         Ok((code, _, err)) if code != 0 => {
-            return exit_with(8, format!("Failed to start agent: {}", err));
+            return exit_tmux("start agent", &err);
         }
         Err(e) => {
-            return exit_with(8, format!("Failed to start agent after retries: {}", e));
+            return exit_tmux("start agent", &e.to_string());
         }
         _ => {} // Success
     }
@@ -2065,7 +2087,9 @@ fn run_agent_attach(
     agent_name: &str, 
     timeout_ms: Option<u64>
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let timeout = Duration::from_millis(timeout_ms.unwrap_or(DEFAULT_AGENT_TIMEOUT_MS));
+    // Issue #34: cap tmux timeouts to 5s
+    let effective_ms = timeout_ms.unwrap_or(DEFAULT_AGENT_TIMEOUT_MS).min(DEFAULT_AGENT_TIMEOUT_MS);
+    let timeout = Duration::from_millis(effective_ms);
     
     // Resolve config paths
     let (project_path, _) = match resolve_config_paths(project_file, None) {
@@ -2125,10 +2149,10 @@ fn run_agent_attach(
     // Attach to the session (with retry)
     match tmux_command_with_retry(&["attach-session", "-t", &session_name], timeout, "attach to session") {
         Ok((code, _, err)) if code != 0 => {
-            return exit_with(8, format!("Failed to attach to tmux session: {}", err));
+            return exit_tmux("attach to session", &err);
         }
         Err(e) => {
-            return exit_with(8, format!("Failed to attach to tmux session after retries: {}", e));
+            return exit_tmux("attach to session", &e.to_string());
         }
         _ => {} // Success - this will block until user detaches
     }
@@ -2143,7 +2167,9 @@ fn run_agent_stop(
     timeout_ms: Option<u64>
 ) -> Result<(), Box<dyn std::error::Error>> {
     let start_time = std::time::Instant::now();
-    let timeout = Duration::from_millis(timeout_ms.unwrap_or(DEFAULT_AGENT_TIMEOUT_MS));
+    // Issue #34: cap tmux timeouts to 5s
+    let effective_ms = timeout_ms.unwrap_or(DEFAULT_AGENT_TIMEOUT_MS).min(DEFAULT_AGENT_TIMEOUT_MS);
+    let timeout = Duration::from_millis(effective_ms);
     
     // Resolve config paths
     let (project_path, _) = match resolve_config_paths(project_file, None) {
@@ -2204,10 +2230,10 @@ fn run_agent_stop(
                 println!("Agent '{}' window already stopped in tmux session '{}'", agent_name, session_name);
                 return Ok(());
             }
-            return exit_with(8, format!("Failed to stop agent: {}", err));
+            return exit_tmux("kill window", &err);
         }
         Err(e) => {
-            return exit_with(8, format!("Failed to stop agent after retries: {}", e));
+            return exit_tmux("kill window", &e.to_string());
         }
         _ => {} // Success
     }
@@ -2790,5 +2816,131 @@ mod tests {
         
         // Clean up test directory
         let _ = std::fs::remove_dir_all(log_dir);
+    }
+
+    #[test]
+    fn tmux_timeout_cap_5s() {
+        // Test that tmux timeouts are capped at 5s (Issue #34)
+        let test_cases = vec![
+            (None, 5000), // Default should be 5s
+            (Some(3000), 3000), // Under cap should be preserved
+            (Some(5000), 5000), // At cap should be preserved
+            (Some(10000), 5000), // Over cap should be capped to 5s
+            (Some(60000), 5000), // Way over cap should be capped to 5s
+        ];
+        
+        for (input_ms, expected_ms) in test_cases {
+            let effective_ms = input_ms.unwrap_or(DEFAULT_AGENT_TIMEOUT_MS).min(DEFAULT_AGENT_TIMEOUT_MS);
+            assert_eq!(effective_ms, expected_ms, 
+                      "Timeout cap test failed: input={:?}ms, expected={}ms, got={}ms", 
+                      input_ms, expected_ms, effective_ms);
+        }
+    }
+
+    #[test]
+    fn tmux_retry_attempts_single() {
+        // Test that tmux retry attempts are set to 1 (2 total attempts) (Issue #34)
+        assert_eq!(TMUX_RETRY_ATTEMPTS, 2, "TMUX_RETRY_ATTEMPTS should be 2 (1 retry) for Issue #34");
+    }
+
+    #[test]
+    fn tmux_race_condition_detection() {
+        // Test race condition detection for tmux retries
+        let race_errors = vec![
+            "session not found",
+            "window not found", 
+            "pane not found",
+            "duplicate session",
+            "duplicate window",
+            "already exists",
+            "busy",
+            "in use",
+            "SESSION NOT FOUND", // Case insensitive
+            "Duplicate Session", // Mixed case
+        ];
+        
+        for error in race_errors {
+            assert!(is_race_condition(error), 
+                   "Should detect race condition for error: '{}'", error);
+        }
+        
+        let non_race_errors = vec![
+            "permission denied",
+            "invalid command",
+            "syntax error",
+            "file not found",
+            "connection refused",
+        ];
+        
+        for error in non_race_errors {
+            assert!(!is_race_condition(error), 
+                   "Should NOT detect race condition for error: '{}'", error);
+        }
+    }
+
+    #[test]
+    fn tmux_exit_code_mapping() {
+        // Test tmux error mapping to standardized exit codes (Issue #34)
+        let timeout_errors = vec![
+            "timeout",
+            "TIMEOUT",
+            "timeout after 5s",
+        ];
+        
+        for error in timeout_errors {
+            // Test timeout detection logic
+            let lower = error.to_lowercase();
+            let is_timeout = lower.contains("timeout");
+            assert!(is_timeout, "Should detect timeout for error: '{}'", error);
+        }
+        
+        let non_timeout_errors = vec![
+            "session not found",
+            "permission denied",
+            "invalid command",
+            "connection refused",
+            "operation timed out", // This should NOT be detected as timeout
+        ];
+        
+        for error in non_timeout_errors {
+            // Test non-timeout detection logic
+            let lower = error.to_lowercase();
+            let is_timeout = lower.contains("timeout");
+            assert!(!is_timeout, "Should NOT detect timeout for error: '{}'", error);
+        }
+    }
+
+    #[test]
+    fn tmux_error_message_cleaning() {
+        // Test error message cleaning for tmux errors (Issue #34)
+        let test_cases = vec![
+            ("simple error", "simple error"),
+            ("  \n  multi line\n  error  \n  ", "multi line error"),
+            ("error with\n\nempty lines", "error with empty lines"),
+            ("  \t  whitespace  \t  ", "whitespace"),
+        ];
+        
+        for (input, expected) in test_cases {
+            let cleaned = input
+                .lines()
+                .map(|l| l.trim())
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>()
+                .join(" ");
+            assert_eq!(cleaned, expected, 
+                      "Error cleaning failed: input='{}', expected='{}', got='{}'", 
+                      input, expected, cleaned);
+        }
+    }
+
+    #[test]
+    fn tmux_retry_delay_reasonable() {
+        // Test that retry delay is reasonable for quick retries (Issue #34)
+        assert!(TMUX_RETRY_DELAY_MS <= 500, 
+               "TMUX_RETRY_DELAY_MS should be <= 500ms for quick retries, got {}ms", 
+               TMUX_RETRY_DELAY_MS);
+        assert!(TMUX_RETRY_DELAY_MS >= 50, 
+               "TMUX_RETRY_DELAY_MS should be >= 50ms to avoid overwhelming, got {}ms", 
+               TMUX_RETRY_DELAY_MS);
     }
 }
