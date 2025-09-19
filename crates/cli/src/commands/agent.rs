@@ -3,9 +3,9 @@
 use std::fs;
 use std::time::{Duration, Instant};
 use config_model::{parse_project_yaml, parse_providers_yaml};
-use crate::utils::{resolve_config_paths, handle_missing_config, DEFAULT_AGENT_TIMEOUT_MS, exit_with};
+use crate::utils::{resolve_config_paths, handle_missing_config, DEFAULT_AGENT_TIMEOUT_MS, exit_with, with_agent_lock};
 use crate::tmux::manager::TmuxManager;
-use crate::logging::{emit_start_event, emit_end_event};
+use crate::logging::{emit_start_event, emit_end_event, emit_metrics_event};
 
 /// Run agent run command
 pub fn run_agent_run(
@@ -58,8 +58,10 @@ pub fn run_agent_run(
     let session_name = format!("proj:{}", project_name);
     let window_name = format!("{}:{}", role, agent_name);
     
-    // Create tmux manager and run agent
-    let tmux_manager = TmuxManager::new(timeout);
+    // Execute with agent lock to prevent race conditions
+    with_agent_lock(project_name, agent_name, timeout, || {
+        // Create tmux manager and run agent
+        let tmux_manager = TmuxManager::new(timeout);
     
     // Step 1: Check if session exists
     let session_exists = tmux_manager.has_session(&session_name)?;
@@ -110,9 +112,16 @@ pub fn run_agent_run(
     let cmd_line = format!("{} {}", provider_config.cmd, args.join(" "));
     tmux_manager.send_keys(&session_name, &window_name, &cmd_line)?;
     
-    let duration_ms = start_time.elapsed().as_millis() as u64;
-    println!("Agent '{}' started in tmux session '{}' (took {}ms)", agent_name, session_name, duration_ms);
-    Ok(())
+        let duration_ms = start_time.elapsed().as_millis() as u64;
+        
+        // Emit metrics for startup duration
+        if let Err(e) = emit_metrics_event(project_name, role, agent_name, provider, "startup", duration_ms, "success", None) {
+            eprintln!("Warning: Failed to emit metrics event: {}", e);
+        }
+        
+        println!("Agent '{}' started in tmux session '{}' (took {}ms)", agent_name, session_name, duration_ms);
+        Ok(())
+    })
 }
 
 /// Run agent attach command

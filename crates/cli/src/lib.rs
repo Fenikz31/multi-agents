@@ -9,6 +9,7 @@ pub mod providers;
 pub mod tmux;
 pub mod logging;
 pub mod utils;
+pub mod broadcast;
 
 // Re-export main types for convenience
 pub use cli::Cli;

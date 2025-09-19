@@ -240,27 +240,65 @@ fn parse_tmux_list_commands(list_cmds: &str) -> BTreeMap<String, bool> {
     supports
 }
 
-/// Probe tmux
+/// Probe tmux with enhanced availability checks
 fn probe_tmux(timeout_ms: u64) -> ProbeResult {
     let mut timed_out = false;
     let mut error = None;
     let version = probe_version("tmux", &[&["-V"], &["--version"]], timeout_ms);
+    
     if version.is_none() {
-        // Not present or failed
-        // Attempt to see if binary exists via help, else mark not present
+        // Not present or failed - check if binary exists via help
         match probe_help("tmux", &["-h"], timeout_ms) {
-            Ok(_) => {},
+            Ok(_) => {
+                // Binary exists but version failed - might be WSL2/CI issue
+                error = Some("tmux binary found but version check failed - may be WSL2/CI compatibility issue".into());
+                return ProbeResult { 
+                    name: "tmux".into(), 
+                    present: false, 
+                    version: None, 
+                    supports: BTreeMap::new(), 
+                    timed_out, 
+                    error 
+                };
+            },
             Err(e) => {
-                if e == "timeout" { timed_out = true; }
-                error = Some(e);
-                return ProbeResult { name: "tmux".into(), present: false, version: None, supports: BTreeMap::new(), timed_out, error };
+                if e == "timeout" { 
+                    timed_out = true; 
+                    error = Some("tmux check timed out - may be unavailable in CI/WSL2 environment".into());
+                } else {
+                    error = Some(format!("tmux not found in PATH: {}. Install with: apt install tmux (Ubuntu/Debian) or brew install tmux (macOS)", e));
+                }
+                return ProbeResult { 
+                    name: "tmux".into(), 
+                    present: false, 
+                    version: None, 
+                    supports: BTreeMap::new(), 
+                    timed_out, 
+                    error 
+                };
             }
         }
     }
-    // pipe-pane support via list-commands
+    
+    // Check pipe-pane support via list-commands
     let list = probe_help("tmux", &["list-commands"], timeout_ms).unwrap_or_default();
     let supports = parse_tmux_list_commands(&list);
-    ProbeResult { name: "tmux".into(), present: true, version, supports, timed_out, error }
+    
+    // Additional WSL2/CI compatibility check
+    if let Some(ver) = &version {
+        if ver.contains("WSL") || ver.contains("CI") {
+            error = Some("tmux detected in WSL2/CI environment - agent attach may not work in non-interactive mode".into());
+        }
+    }
+    
+    ProbeResult { 
+        name: "tmux".into(), 
+        present: true, 
+        version, 
+        supports, 
+        timed_out, 
+        error 
+    }
 }
 
 /// Probe git
