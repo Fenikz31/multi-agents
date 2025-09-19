@@ -27,12 +27,28 @@ Ce guide décrit comment contribuer avec GitLab (self‑hosted), la convention d
 - Roadmap & critères d’acceptation : `docs/roadmap.md`.
 - Checklist jalon : `docs/m0-checklist.md`.
 
-## Bonnes pratiques
+## Architecture et développement
+
+Le CLI a été organisé en architecture modulaire pour améliorer la maintenabilité :
+
+### Structure des modules
+- **`cli/`** : Définitions et parsing des commandes CLI
+- **`commands/`** : Implémentations des commandes (config, doctor, db, send, session, agent, init)
+- **`utils/`** : Utilitaires partagés (constantes, gestion d'erreurs, timeouts)
+- **`tmux/`** : Gestion des sessions tmux avec logique de retry
+- **`logging/`** : Gestion des événements NDJSON
+- **`providers/`** : Gestion des providers
+- **`tests/`** : Suite de tests complète (24 tests unitaires et d'intégration)
+
+### Bonnes pratiques
 
 - Gardez `docs/` comme source de vérité pour les décisions stables.
 - Évitez de versionner des artefacts éphémères (issues granulaires) — utilisez GitLab Issues.
-- Respectez l’EditorConfig et les fins de ligne LF.
+- Respectez l'EditorConfig et les fins de ligne LF.
 - Les données runtime (`/data`, `/logs`) et secrets (`.env`) ne sont pas commités.
+- **Tests** : Ajoutez des tests unitaires pour les nouvelles fonctionnalités dans `tests/unit/`
+- **Intégration** : Ajoutez des tests d'intégration dans `tests/integration/` pour les workflows complets
+- **Modularité** : Respectez la séparation des responsabilités entre modules
 
 ## Hooks Git locaux (pré‑commit)
 

@@ -2,6 +2,19 @@
 
 This documentation describes the design, roadmap, and usage of the Multi-Agents CLI that orchestrates Gemini CLI, Claude Code, and Cursor Agent using tmux. It focuses on CLI-only integrations, YAML role configuration, tool allowlists, NDJSON logging, and a concurrency limit of 3.
 
+## Architecture
+
+The CLI has been refactored from a monolithic 3410-line `main.rs` file into a modular architecture:
+
+- **Modular design**: 30+ files organized by functionality
+- **Clear separation**: CLI parsing, commands, utilities, tmux management, logging
+- **Comprehensive testing**: 24 unit and integration tests
+- **Maintainable code**: Each module has a single responsibility
+
+See the [Overview](./overview.md) for the system architecture and [Testing strategy](./testing.md) for test organization.
+
+## Documentation
+
 - [Overview](./overview.md)
 - [Roadmap and acceptance](./roadmap.md)
 - [Configuration (YAML, env)](./configuration.md)

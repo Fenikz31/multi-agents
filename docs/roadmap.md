@@ -1,5 +1,7 @@
 ## Roadmap and Acceptance Contract
 
+**Architecture Update**: The CLI has been organized into a modular architecture with 30+ files organized by functionality. This improves maintainability, testability, and extensibility. See `docs/overview.md` for details.
+
 Standards
 - Concurrency: max 3 one-shot executions (global semaphore, FIFO).
 - Timeouts: 120s per send; 2–10s doctor/detection; 5s tmux actions.

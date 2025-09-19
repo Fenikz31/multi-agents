@@ -11,6 +11,25 @@
 - Store (SQLite): projects, agents, sessions, messages, tasks, broadcasts.
 - TUI (ratatui): Kanban board, sessions list, session detail (NDJSON tail).
 
+## Architecture
+
+The CLI has been organized into a modular architecture:
+
+### Module Organization
+- **`cli/`**: Command definitions and parsing logic
+- **`commands/`**: Implementation of all CLI commands (config, doctor, db, send, session, agent, init)
+- **`utils/`**: Shared utilities (constants, error handling, config resolution, timeouts)
+- **`tmux/`**: tmux session and window management with retry logic
+- **`logging/`**: NDJSON event handling and logging utilities
+- **`providers/`**: Provider management and integration
+- **`tests/`**: Comprehensive test suite (unit and integration tests)
+
+### Key Benefits
+- **Maintainability**: Clear separation of concerns, easy navigation
+- **Testability**: 24 tests covering all major functionality
+- **Reusability**: Modular components can be used independently
+- **Extensibility**: Easy to add new commands or providers
+
 ## Environment
 - Linux/WSL2.
 - Required CLIs: `gemini`, `claude`, `cursor-agent`, `tmux`, `git`.
