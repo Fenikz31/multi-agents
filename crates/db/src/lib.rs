@@ -45,6 +45,11 @@ fn apply_pending_migrations(conn: &Connection) -> Result<(), DbError> {
         apply_v2(conn)?;
         record_migration(conn, 2)?;
     }
+    // v3: add type column for REPL sessions (Issue #36)
+    if !migration_applied(conn, 3)? {
+        apply_v3(conn)?;
+        record_migration(conn, 3)?;
+    }
     Ok(())
 }
 
@@ -139,6 +144,19 @@ fn apply_v2(conn: &Connection) -> Result<(), DbError> {
     Ok(())
 }
 
+fn apply_v3(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(
+        r#"
+        -- Add type column for REPL sessions (Issue #36)
+        ALTER TABLE sessions ADD COLUMN type TEXT DEFAULT 'chat';
+        
+        -- Create index for session type filtering
+        CREATE INDEX IF NOT EXISTS idx_sessions_type_status ON sessions(type, status);
+        "#,
+    )?;
+    Ok(())
+}
+
 // ---------- Session Management Types ----------
 
 #[derive(Debug, Clone)]
@@ -153,6 +171,7 @@ pub struct Session {
     pub status: SessionStatus,
     pub metadata: Option<String>,
     pub expires_at: Option<String>,
+    pub session_type: SessionType,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -160,6 +179,12 @@ pub enum SessionStatus {
     Active,
     Expired,
     Invalid,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum SessionType {
+    Chat,
+    Repl,
 }
 
 impl std::fmt::Display for SessionStatus {
@@ -181,6 +206,27 @@ impl std::str::FromStr for SessionStatus {
             "expired" => Ok(SessionStatus::Expired),
             "invalid" => Ok(SessionStatus::Invalid),
             _ => Err(DbError::InvalidInput(format!("Invalid session status: {}", s))),
+        }
+    }
+}
+
+impl std::fmt::Display for SessionType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SessionType::Chat => write!(f, "chat"),
+            SessionType::Repl => write!(f, "repl"),
+        }
+    }
+}
+
+impl std::str::FromStr for SessionType {
+    type Err = DbError;
+    
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "chat" => Ok(SessionType::Chat),
+            "repl" => Ok(SessionType::Repl),
+            _ => Err(DbError::InvalidInput(format!("Invalid session type: {}", s))),
         }
     }
 }
@@ -214,6 +260,7 @@ pub struct SessionFilters {
     pub agent_id: Option<String>,
     pub provider: Option<String>,
     pub status: Option<SessionStatus>,
+    pub session_type: Option<SessionType>,
     pub limit: Option<u32>,
     pub offset: Option<u32>,
 }
@@ -649,11 +696,22 @@ pub fn insert_session(
     provider: &str,
     provider_session_id: Option<&str>,
 ) -> Result<Session, DbError> {
+    insert_session_with_type(conn, project_id, agent_id, provider, provider_session_id, SessionType::Chat)
+}
+
+pub fn insert_session_with_type(
+    conn: &Connection,
+    project_id: &str,
+    agent_id: &str,
+    provider: &str,
+    provider_session_id: Option<&str>,
+    session_type: SessionType,
+) -> Result<Session, DbError> {
     let id = uuid();
     let now = now_iso8601_utc();
     conn.execute(
-        "INSERT INTO sessions(id, project_id, agent_id, provider, provider_session_id, created_at, last_activity, status, metadata, expires_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-        params![id, project_id, agent_id, provider, provider_session_id, now, now, "active", None::<String>, None::<String>],
+        "INSERT INTO sessions(id, project_id, agent_id, provider, provider_session_id, created_at, last_activity, status, metadata, expires_at, type) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        params![id, project_id, agent_id, provider, provider_session_id, now, now, "active", None::<String>, None::<String>, session_type.to_string()],
     )?;
     Ok(Session {
         id,
@@ -666,16 +724,30 @@ pub fn insert_session(
         status: SessionStatus::Active,
         metadata: None,
         expires_at: None,
+        session_type,
     })
+}
+
+/// Create a REPL session (Issue #36)
+pub fn insert_repl_session(
+    conn: &Connection,
+    project_id: &str,
+    agent_id: &str,
+    provider: &str,
+    provider_session_id: Option<&str>,
+) -> Result<Session, DbError> {
+    insert_session_with_type(conn, project_id, agent_id, provider, provider_session_id, SessionType::Repl)
 }
 
 pub fn find_session(conn: &Connection, session_id: &str) -> Result<Option<Session>, DbError> {
     let mut stmt = conn.prepare(
-        "SELECT id, project_id, agent_id, provider, provider_session_id, created_at, last_activity, status, metadata, expires_at FROM sessions WHERE id = ?1"
+        "SELECT id, project_id, agent_id, provider, provider_session_id, created_at, last_activity, status, metadata, expires_at, type FROM sessions WHERE id = ?1"
     )?;
     let session = stmt.query_row(params![session_id], |row| {
         let status_str: String = row.get(7)?;
         let status = status_str.parse().unwrap_or(SessionStatus::Invalid);
+        let type_str: String = row.get(10)?;
+        let session_type = type_str.parse().unwrap_or(SessionType::Chat);
         Ok(Session {
             id: row.get(0)?,
             project_id: row.get(1)?,
@@ -687,13 +759,14 @@ pub fn find_session(conn: &Connection, session_id: &str) -> Result<Option<Sessio
             status,
             metadata: row.get(8)?,
             expires_at: row.get(9)?,
+            session_type,
         })
     }).optional()?;
     Ok(session)
 }
 
 pub fn list_sessions(conn: &Connection, filters: SessionFilters) -> Result<Vec<Session>, DbError> {
-    let mut query = "SELECT id, project_id, agent_id, provider, provider_session_id, created_at, last_activity, status, metadata, expires_at FROM sessions WHERE 1=1".to_string();
+    let mut query = "SELECT id, project_id, agent_id, provider, provider_session_id, created_at, last_activity, status, metadata, expires_at, type FROM sessions WHERE 1=1".to_string();
     let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
     let mut param_count = 0;
 
@@ -721,6 +794,12 @@ pub fn list_sessions(conn: &Connection, filters: SessionFilters) -> Result<Vec<S
         params.push(Box::new(status.to_string()));
     }
 
+    if let Some(session_type) = &filters.session_type {
+        param_count += 1;
+        query.push_str(&format!(" AND type = ?{}", param_count));
+        params.push(Box::new(session_type.to_string()));
+    }
+
     query.push_str(" ORDER BY created_at DESC");
 
     if let Some(limit) = filters.limit {
@@ -739,6 +818,8 @@ pub fn list_sessions(conn: &Connection, filters: SessionFilters) -> Result<Vec<S
     let session_iter = stmt.query_map(rusqlite::params_from_iter(params), |row| {
         let status_str: String = row.get(7)?;
         let status = status_str.parse().unwrap_or(SessionStatus::Invalid);
+        let type_str: String = row.get(10)?;
+        let session_type = type_str.parse().unwrap_or(SessionType::Chat);
         Ok(Session {
             id: row.get(0)?,
             project_id: row.get(1)?,
@@ -750,6 +831,7 @@ pub fn list_sessions(conn: &Connection, filters: SessionFilters) -> Result<Vec<S
             status,
             metadata: row.get(8)?,
             expires_at: row.get(9)?,
+            session_type,
         })
     })?;
 
@@ -808,6 +890,23 @@ pub fn delete_expired_sessions(conn: &Connection, before_timestamp: &str) -> Res
     let count = conn.execute(
         "DELETE FROM sessions WHERE expires_at IS NOT NULL AND expires_at < ?1",
         params![before_timestamp],
+    )?;
+    Ok(count as u32)
+}
+
+/// Clean up REPL sessions older than 24 hours (Issue #36)
+pub fn cleanup_repl_sessions(conn: &Connection) -> Result<u32, DbError> {
+    let now = time::OffsetDateTime::now_utc();
+    // Calculate 24 hours ago
+    let twenty_four_hours_ago = now
+        .saturating_sub(time::Duration::hours(24))
+        .format(&time::format_description::well_known::Rfc3339)
+        .map_err(|e| DbError::InvalidInput(e.to_string()))?;
+    
+    // Update REPL sessions older than 24 hours to inactive status
+    let count = conn.execute(
+        "UPDATE sessions SET status = 'expired' WHERE type = 'repl' AND (last_activity < ?1 OR created_at < ?1) AND status = 'active'",
+        params![twenty_four_hours_ago],
     )?;
     Ok(count as u32)
 }
@@ -982,6 +1081,7 @@ mod tests {
             agent_id: None,
             provider: None,
             status: None,
+            session_type: None,
             limit: Some(10),
             offset: None,
         };
@@ -1031,6 +1131,7 @@ mod tests {
             agent_id: None,
             provider: Some("gemini".to_string()),
             status: None,
+            session_type: None,
             limit: None,
             offset: None,
         };
@@ -1045,6 +1146,7 @@ mod tests {
             agent_id: None,
             provider: None,
             status: Some(SessionStatus::Expired),
+            session_type: None,
             limit: None,
             offset: None,
         };
@@ -1068,17 +1170,17 @@ mod tests {
         for _ in 0..5 { ids.push(insert_session(&conn, &p.id, &a.id, "gemini", None).unwrap().id); }
 
         // List with limit 2, page 1
-        let filters = SessionFilters { project_id: Some(p.id.clone()), agent_id: None, provider: None, status: None, limit: Some(2), offset: Some(0) };
+        let filters = SessionFilters { project_id: Some(p.id.clone()), agent_id: None, provider: None, status: None, session_type: None, limit: Some(2), offset: Some(0) };
         let page1 = list_sessions(&conn, filters).unwrap();
         assert_eq!(page1.len(), 2);
 
         // Next page
-        let filters = SessionFilters { project_id: Some(p.id.clone()), agent_id: None, provider: None, status: None, limit: Some(2), offset: Some(2) };
+        let filters = SessionFilters { project_id: Some(p.id.clone()), agent_id: None, provider: None, status: None, session_type: None, limit: Some(2), offset: Some(2) };
         let page2 = list_sessions(&conn, filters).unwrap();
         assert_eq!(page2.len(), 2);
 
         // Last page (maybe 1 element)
-        let filters = SessionFilters { project_id: Some(p.id.clone()), agent_id: None, provider: None, status: None, limit: Some(2), offset: Some(4) };
+        let filters = SessionFilters { project_id: Some(p.id.clone()), agent_id: None, provider: None, status: None, session_type: None, limit: Some(2), offset: Some(4) };
         let page3 = list_sessions(&conn, filters).unwrap();
         assert!(page3.len() == 1 || page3.len() == 2); // depending on timing
     }
@@ -1587,6 +1689,196 @@ mod tests {
         assert!(context_id2.starts_with("valid_context_"));
         // Note: In fast tests, IDs might be identical due to same timestamp
         // In real implementation, this would be handled by the actual Gemini API
+    }
+
+    // ---------- REPL Session Tests (Issue #36) ----------
+
+    #[test]
+    fn migration_v3_adds_type_column() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("multi-agents.sqlite3");
+        let conn = open_or_create_db(db_path.to_string_lossy().as_ref()).unwrap();
+        
+        // Check that migration v3 was applied
+        let v3_applied = migration_applied(&conn, 3).unwrap();
+        assert!(v3_applied, "migration v3 should be applied");
+        
+        // Check that type column exists
+        let mut stmt = conn.prepare("PRAGMA table_info(sessions)").unwrap();
+        let columns: Vec<(i64, String, String, i64, Option<String>, i64)> = stmt.query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?))
+        }).unwrap().collect::<Result<Vec<_>, _>>().unwrap();
+        
+        let column_names: Vec<String> = columns.iter().map(|(_, name, _, _, _, _)| name.clone()).collect();
+        assert!(column_names.contains(&"type".to_string()), "type column should exist");
+        
+        // Check that index was created
+        let mut stmt = conn.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_sessions_%'").unwrap();
+        let indexes: Vec<String> = stmt.query_map([], |row| Ok(row.get(0)?)).unwrap().collect::<Result<Vec<_>, _>>().unwrap();
+        
+        assert!(indexes.contains(&"idx_sessions_type_status".to_string()), "type_status index should exist");
+    }
+
+    #[test]
+    fn session_type_display_and_parse() {
+        assert_eq!(SessionType::Chat.to_string(), "chat");
+        assert_eq!(SessionType::Repl.to_string(), "repl");
+        
+        assert_eq!("chat".parse::<SessionType>().unwrap(), SessionType::Chat);
+        assert_eq!("repl".parse::<SessionType>().unwrap(), SessionType::Repl);
+        
+        assert!("invalid_type".parse::<SessionType>().is_err());
+    }
+
+    #[test]
+    fn insert_repl_session_creates_correct_type() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("multi-agents.sqlite3");
+        let conn = open_or_create_db(db_path.to_string_lossy().as_ref()).unwrap();
+        
+        // Create project and agent
+        let p = insert_project(&conn, "demo").unwrap();
+        let a = insert_agent(&conn, &p.id, "backend", "backend", "gemini", "g-1.5", &vec!["Edit".into()], "sp").unwrap();
+        
+        // Test insert_repl_session
+        let session = insert_repl_session(&conn, &p.id, &a.id, "gemini", Some("provider_123")).unwrap();
+        assert_eq!(session.project_id, p.id);
+        assert_eq!(session.agent_id, a.id);
+        assert_eq!(session.provider, "gemini");
+        assert_eq!(session.provider_session_id, Some("provider_123".to_string()));
+        assert_eq!(session.status, SessionStatus::Active);
+        assert_eq!(session.session_type, SessionType::Repl);
+        
+        // Verify in database
+        let found_session = find_session(&conn, &session.id).unwrap().unwrap();
+        assert_eq!(found_session.session_type, SessionType::Repl);
+    }
+
+    #[test]
+    fn session_filters_by_type() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("multi-agents.sqlite3");
+        let conn = open_or_create_db(db_path.to_string_lossy().as_ref()).unwrap();
+        
+        // Create project and agent
+        let p = insert_project(&conn, "demo").unwrap();
+        let a = insert_agent(&conn, &p.id, "backend", "backend", "gemini", "g-1.5", &vec!["Edit".into()], "sp").unwrap();
+        
+        // Create sessions of different types
+        let _chat_session = insert_session(&conn, &p.id, &a.id, "gemini", Some("chat_123")).unwrap();
+        let _repl_session = insert_repl_session(&conn, &p.id, &a.id, "gemini", Some("repl_456")).unwrap();
+        
+        // Test filter by chat type
+        let filters = SessionFilters {
+            project_id: Some(p.id.clone()),
+            agent_id: None,
+            provider: None,
+            status: None,
+            session_type: Some(SessionType::Chat),
+            limit: None,
+            offset: None,
+        };
+        let chat_sessions = list_sessions(&conn, filters).unwrap();
+        assert_eq!(chat_sessions.len(), 1);
+        assert_eq!(chat_sessions[0].session_type, SessionType::Chat);
+        
+        // Test filter by repl type
+        let filters = SessionFilters {
+            project_id: Some(p.id.clone()),
+            agent_id: None,
+            provider: None,
+            status: None,
+            session_type: Some(SessionType::Repl),
+            limit: None,
+            offset: None,
+        };
+        let repl_sessions = list_sessions(&conn, filters).unwrap();
+        assert_eq!(repl_sessions.len(), 1);
+        assert_eq!(repl_sessions[0].session_type, SessionType::Repl);
+    }
+
+    #[test]
+    fn cleanup_repl_sessions_marks_old_as_expired() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("multi-agents.sqlite3");
+        let conn = open_or_create_db(db_path.to_string_lossy().as_ref()).unwrap();
+        
+        // Create project and agent
+        let p = insert_project(&conn, "demo").unwrap();
+        let a = insert_agent(&conn, &p.id, "backend", "backend", "gemini", "g-1.5", &vec!["Edit".into()], "sp").unwrap();
+        
+        // Create a REPL session
+        let session = insert_repl_session(&conn, &p.id, &a.id, "gemini", Some("provider_123")).unwrap();
+        
+        // Manually set last_activity to 25 hours ago
+        let twenty_five_hours_ago = time::OffsetDateTime::now_utc()
+            .saturating_sub(time::Duration::hours(25))
+            .format(&time::format_description::well_known::Rfc3339)
+            .unwrap();
+        
+        conn.execute(
+            "UPDATE sessions SET last_activity = ?1 WHERE id = ?2",
+            params![twenty_five_hours_ago, session.id],
+        ).unwrap();
+        
+        // Run cleanup
+        let cleaned_count = cleanup_repl_sessions(&conn).unwrap();
+        assert_eq!(cleaned_count, 1, "Should mark 1 REPL session as expired");
+        
+        // Verify session is now expired
+        let updated_session = find_session(&conn, &session.id).unwrap().unwrap();
+        assert_eq!(updated_session.status, SessionStatus::Expired);
+    }
+
+    #[test]
+    fn cleanup_repl_sessions_ignores_recent_sessions() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("multi-agents.sqlite3");
+        let conn = open_or_create_db(db_path.to_string_lossy().as_ref()).unwrap();
+        
+        // Create project and agent
+        let p = insert_project(&conn, "demo").unwrap();
+        let a = insert_agent(&conn, &p.id, "backend", "backend", "gemini", "g-1.5", &vec!["Edit".into()], "sp").unwrap();
+        
+        // Create a recent REPL session (should not be cleaned up)
+        let _recent_session = insert_repl_session(&conn, &p.id, &a.id, "gemini", Some("provider_123")).unwrap();
+        
+        // Run cleanup
+        let cleaned_count = cleanup_repl_sessions(&conn).unwrap();
+        assert_eq!(cleaned_count, 0, "Should not clean up recent REPL sessions");
+    }
+
+    #[test]
+    fn cleanup_repl_sessions_ignores_chat_sessions() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("multi-agents.sqlite3");
+        let conn = open_or_create_db(db_path.to_string_lossy().as_ref()).unwrap();
+        
+        // Create project and agent
+        let p = insert_project(&conn, "demo").unwrap();
+        let a = insert_agent(&conn, &p.id, "backend", "backend", "gemini", "g-1.5", &vec!["Edit".into()], "sp").unwrap();
+        
+        // Create an old chat session (should not be cleaned up by REPL cleanup)
+        let session = insert_session(&conn, &p.id, &a.id, "gemini", Some("chat_123")).unwrap();
+        
+        // Manually set last_activity to 25 hours ago
+        let twenty_five_hours_ago = time::OffsetDateTime::now_utc()
+            .saturating_sub(time::Duration::hours(25))
+            .format(&time::format_description::well_known::Rfc3339)
+            .unwrap();
+        
+        conn.execute(
+            "UPDATE sessions SET last_activity = ?1 WHERE id = ?2",
+            params![twenty_five_hours_ago, session.id],
+        ).unwrap();
+        
+        // Run REPL cleanup
+        let cleaned_count = cleanup_repl_sessions(&conn).unwrap();
+        assert_eq!(cleaned_count, 0, "Should not clean up chat sessions");
+        
+        // Verify chat session is still active
+        let updated_session = find_session(&conn, &session.id).unwrap().unwrap();
+        assert_eq!(updated_session.status, SessionStatus::Active);
     }
 }
 
