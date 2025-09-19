@@ -127,9 +127,9 @@ pub fn clean_text_for_logging(text: &str, max_length: usize) -> String {
 
 /// Emit metrics event for NDJSON logging
 pub fn emit_metrics_event(
-    project_name: &str, 
-    role: &str, 
-    agent_name: &str, 
+    project_name: &str,
+    role: &str,
+    agent_name: &str,
     provider: &str,
     event_type: &str,
     duration_ms: u64,
@@ -138,6 +138,22 @@ pub fn emit_metrics_event(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let log_file = format!("./logs/{}/{}.ndjson", project_name, role);
     let event = NdjsonEvent::new_metrics(project_name, role, agent_name, provider, event_type, duration_ms, status, details);
+    write_ndjson_event(&log_file, &event)
+}
+
+/// Emit failure metrics event for NDJSON logging
+pub fn emit_failure_metrics_event(
+    project_name: &str,
+    role: &str,
+    agent_name: &str,
+    provider: &str,
+    failure_category: &str,
+    failure_type: &str,
+    duration_ms: u64,
+    error_details: &str
+) -> Result<(), Box<dyn std::error::Error>> {
+    let log_file = format!("./logs/{}/{}.ndjson", project_name, role);
+    let event = NdjsonEvent::new_failure_metrics(project_name, role, agent_name, provider, failure_category, failure_type, duration_ms, error_details);
     write_ndjson_event(&log_file, &event)
 }
 

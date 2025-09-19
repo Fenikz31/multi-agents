@@ -182,6 +182,8 @@ pub enum AgentCmd {
         #[arg(long, value_name = "DIR")] workdir: Option<String>,
         /// Disable NDJSON logging
         #[arg(long, default_value_t = false)] no_logs: bool,
+        /// Custom logs directory (default: ./logs)
+        #[arg(long, value_name = "DIR")] logs_dir: Option<String>,
         /// Optional: override timeout in milliseconds (default 5000)
         #[arg(long, value_name = "MILLIS")] timeout_ms: Option<u64>,
     },
