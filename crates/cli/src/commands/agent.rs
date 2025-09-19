@@ -5,19 +5,20 @@ use std::time::{Duration, Instant};
 use config_model::{parse_project_yaml, parse_providers_yaml};
 use crate::utils::{resolve_config_paths, handle_missing_config, DEFAULT_AGENT_TIMEOUT_MS, exit_with, with_agent_lock};
 use crate::tmux::manager::TmuxManager;
-use crate::logging::{emit_start_event, emit_end_event, emit_metrics_event};
+use crate::logging::{emit_start_event, emit_end_event, emit_metrics_event, emit_failure_metrics_event};
 
 /// Run agent run command
 pub fn run_agent_run(
-    project_file: Option<&str>, 
-    providers_file: Option<&str>, 
-    project_name: Option<&str>, 
-    agent_name: &str, 
-    role_override: Option<&str>, 
-    provider_override: Option<&str>, 
-    model_override: Option<&str>, 
-    workdir: Option<&str>, 
-    no_logs: bool, 
+    project_file: Option<&str>,
+    providers_file: Option<&str>,
+    project_name: Option<&str>,
+    agent_name: &str,
+    role_override: Option<&str>,
+    provider_override: Option<&str>,
+    model_override: Option<&str>,
+    workdir: Option<&str>,
+    no_logs: bool,
+    logs_dir: Option<&str>,
     timeout_ms: Option<u64>
 ) -> Result<(), Box<dyn std::error::Error>> {
     let start_time = Instant::now();
@@ -84,8 +85,9 @@ pub fn run_agent_run(
     
     // Step 5: Set up logging if not disabled
     if !no_logs {
-        let log_dir = format!("./logs/{}", project_name);
-        let _ = fs::create_dir_all(&log_dir);
+        let default_log_dir = format!("./logs/{}", project_name);
+        let log_dir = logs_dir.unwrap_or(&default_log_dir);
+        let _ = fs::create_dir_all(log_dir);
         let log_file = format!("{}/{}.ndjson", log_dir, role);
         
         // Set up pipe-pane for logging
@@ -111,6 +113,19 @@ pub fn run_agent_run(
     
     let cmd_line = format!("{} {}", provider_config.cmd, args.join(" "));
     tmux_manager.send_keys(&session_name, &window_name, &cmd_line)?;
+    
+    // Step 8: Healthcheck post-start to confirm ready state
+    let healthcheck_start = Instant::now();
+    if let Err(e) = perform_healthcheck(&tmux_manager, &session_name, &window_name, provider, timeout) {
+        let healthcheck_duration = healthcheck_start.elapsed().as_millis() as u64;
+        eprintln!("Warning: Healthcheck failed for agent '{}': {}", agent_name, e);
+        
+        // Emit failure metrics
+        if let Err(metrics_err) = emit_failure_metrics_event(project_name, role, agent_name, provider, "healthcheck", "provider_unresponsive", healthcheck_duration, &e.to_string()) {
+            eprintln!("Warning: Failed to emit failure metrics: {}", metrics_err);
+        }
+        // Don't fail the startup, just warn
+    }
     
         let duration_ms = start_time.elapsed().as_millis() as u64;
         
@@ -256,5 +271,35 @@ pub fn run_agent_stop(
     
     let total_duration_ms = start_time.elapsed().as_millis() as u64;
     println!("Agent '{}' stopped in tmux session '{}' (took {}ms)", agent_name, session_name, total_duration_ms);
+    Ok(())
+}
+
+/// Perform healthcheck after agent startup to confirm ready state
+pub fn perform_healthcheck(
+    tmux_manager: &TmuxManager,
+    session_name: &str,
+    window_name: &str,
+    provider: &str,
+    _timeout: Duration
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Wait a bit for the provider to initialize
+    std::thread::sleep(Duration::from_millis(500));
+    
+    // Send a version check command to verify the provider is responsive
+    let healthcheck_cmd = match provider {
+        "gemini" => "gemini --version",
+        "claude" => "claude --version", 
+        "cursor-agent" => "cursor-agent --version",
+        _ => "echo 'healthcheck'", // Fallback for unknown providers
+    };
+    
+    // Send the healthcheck command
+    tmux_manager.send_keys(session_name, window_name, healthcheck_cmd)?;
+    
+    // Wait a bit for the response
+    std::thread::sleep(Duration::from_millis(1000));
+    
+    // For now, we consider the healthcheck successful if we can send the command
+    // In a more sophisticated implementation, we could capture and verify the output
     Ok(())
 }

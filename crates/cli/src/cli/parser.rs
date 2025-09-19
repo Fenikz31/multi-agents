@@ -37,8 +37,8 @@ impl Cli {
                     run_session_cleanup(project_file.as_deref(), dry_run, format),
             },
             Commands::Agent { cmd } => match cmd {
-                AgentCmd::Run { project_file, providers_file, project, agent, role, provider, model, workdir, no_logs, timeout_ms } =>
-                    run_agent_run(project_file.as_deref(), providers_file.as_deref(), project.as_deref(), &agent, role.as_deref(), provider.as_deref(), model.as_deref(), workdir.as_deref(), no_logs, timeout_ms),
+                AgentCmd::Run { project_file, providers_file, project, agent, role, provider, model, workdir, no_logs, logs_dir, timeout_ms } =>
+                    run_agent_run(project_file.as_deref(), providers_file.as_deref(), project.as_deref(), &agent, role.as_deref(), provider.as_deref(), model.as_deref(), workdir.as_deref(), no_logs, logs_dir.as_deref(), timeout_ms),
                 AgentCmd::Attach { project_file, project, agent, timeout_ms } =>
                     run_agent_attach(project_file.as_deref(), project.as_deref(), &agent, timeout_ms),
                 AgentCmd::Stop { project_file, project, agent, timeout_ms } =>
