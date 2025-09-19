@@ -5,12 +5,26 @@ use std::io::Write;
 use db::now_iso8601_utc;
 use super::events::NdjsonEvent;
 
-/// Write NDJSON event to log file
+/// Write NDJSON event to log file with enhanced error handling
 pub fn write_ndjson_event(log_file: &str, event: &NdjsonEvent) -> Result<(), Box<dyn std::error::Error>> {
-    // Ensure directory exists
+    // Ensure directory exists with permission check
     if let Some(parent) = std::path::Path::new(log_file).parent() {
-        std::fs::create_dir_all(parent)?;
+        match std::fs::create_dir_all(parent) {
+            Ok(_) => {},
+            Err(e) => {
+                return Err(format!("Failed to create log directory '{}': {}. Try using --logs-dir option or --no-logs to disable logging", parent.display(), e).into());
+            }
+        }
     }
+    
+    // Test write permissions before attempting to write
+    let test_file = format!("{}.test", log_file);
+    if let Err(e) = std::fs::write(&test_file, "test") {
+        let _ = std::fs::remove_file(&test_file);
+        return Err(format!("No write permission to log directory '{}': {}. Try using --logs-dir option or --no-logs to disable logging", 
+                          std::path::Path::new(log_file).parent().unwrap_or(std::path::Path::new(".")).display(), e).into());
+    }
+    let _ = std::fs::remove_file(&test_file);
     
     // Write event as single line JSON
     let mut file = fs::OpenOptions::new()
@@ -79,6 +93,52 @@ pub fn emit_stdout_line_event(project_name: &str, role: &str, agent_name: &str, 
 pub fn has_ansi(s: &str) -> bool {
     // Quick heuristic: ESC [ ... m  (CSI SGR)
     s.contains("\u{1b}[")
+}
+
+/// Remove ANSI escape sequences from text
+pub fn remove_ansi_escape_sequences(text: &str) -> String {
+    // Remove common ANSI escape sequences
+    let mut result = text.to_string();
+    
+    // Remove CSI sequences (ESC [ ... m)
+    result = regex::Regex::new(r"\x1b\[[0-9;]*m").unwrap().replace_all(&result, "").to_string();
+    
+    // Remove other common escape sequences
+    result = regex::Regex::new(r"\x1b\[[0-9;]*[A-Za-z]").unwrap().replace_all(&result, "").to_string();
+    result = regex::Regex::new(r"\x1b\]0;[^\x07]*\x07").unwrap().replace_all(&result, "").to_string(); // OSC sequences
+    
+    result
+}
+
+/// Limit line length to prevent log bloat
+pub fn limit_line_length(text: &str, max_length: usize) -> String {
+    if text.len() <= max_length {
+        text.to_string()
+    } else {
+        format!("{}... [truncated {} chars]", &text[..max_length-20], text.len() - max_length + 20)
+    }
+}
+
+/// Clean text for NDJSON logging (remove ANSI, limit length)
+pub fn clean_text_for_logging(text: &str, max_length: usize) -> String {
+    let cleaned = remove_ansi_escape_sequences(text);
+    limit_line_length(&cleaned, max_length)
+}
+
+/// Emit metrics event for NDJSON logging
+pub fn emit_metrics_event(
+    project_name: &str, 
+    role: &str, 
+    agent_name: &str, 
+    provider: &str,
+    event_type: &str,
+    duration_ms: u64,
+    status: &str,
+    details: Option<&str>
+) -> Result<(), Box<dyn std::error::Error>> {
+    let log_file = format!("./logs/{}/{}.ndjson", project_name, role);
+    let event = NdjsonEvent::new_metrics(project_name, role, agent_name, provider, event_type, duration_ms, status, details);
+    write_ndjson_event(&log_file, &event)
 }
 
 /// Self-check NDJSON file for validity
