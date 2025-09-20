@@ -89,7 +89,7 @@ impl BroadcastTarget {
 }
 
 /// Broadcast result for a single target
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct BroadcastResult {
     pub target: String,
     pub success: bool,
@@ -98,7 +98,7 @@ pub struct BroadcastResult {
 }
 
 /// Aggregate broadcast results
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct BroadcastSummary {
     pub total_targets: usize,
     pub successful: usize,
