@@ -7,5 +7,6 @@ pub mod send_tests;
 pub mod session_tests;
 pub mod agent_tests;
 pub mod tmux_tests;
+pub mod broadcast_tests;
 
 // Re-export all integration tests
