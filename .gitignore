@@ -37,3 +37,4 @@ Thumbs.db
 # Misc
 coverage/
 config/backup-*
+.reports/
