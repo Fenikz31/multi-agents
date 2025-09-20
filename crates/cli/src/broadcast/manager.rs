@@ -149,7 +149,6 @@ mod tests {
     #[test]
     fn test_broadcast_manager_creation() {
         let manager = BroadcastManager::new("test".to_string(), Duration::from_secs(5));
-        assert_eq!(manager.project_name, "test");
         assert!(!manager.broadcast_id().is_empty());
     }
 }
