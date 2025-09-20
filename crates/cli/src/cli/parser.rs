@@ -50,6 +50,13 @@ impl Cli {
                 BroadcastCmd::Repl { project_file, project, to, message, timeout_ms, format, progress } =>
                     run_broadcast_repl(project_file.as_deref(), project.as_deref(), &to, &message, timeout_ms, format, progress),
             },
+            Commands::Monitor { project, duration, format, output } => {
+                let project_name = project.unwrap_or_else(|| std::env::current_dir()
+                    .ok()
+                    .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+                    .unwrap_or_else(|| "default".to_string()));
+                run_monitor(&project_name, duration, &format!("{:?}", format), output.as_deref())
+            },
         }
     }
 }

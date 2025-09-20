@@ -76,6 +76,17 @@ pub enum Commands {
         #[command(subcommand)]
         cmd: BroadcastCmd,
     },
+    /// Monitor broadcast operations and system metrics
+    Monitor {
+        /// Project name (defaults to current directory name)
+        #[arg(long)] project: Option<String>,
+        /// Duration to monitor in seconds (default: 60)
+        #[arg(long, value_name = "SECONDS")] duration: Option<u64>,
+        /// Output format (text|json)
+        #[arg(long, value_enum, default_value_t = Format::Text)] format: Format,
+        /// Optional: write output to file
+        #[arg(long, value_name = "PATH")] output: Option<String>,
+    },
 }
 
 #[derive(Subcommand, Debug)]
