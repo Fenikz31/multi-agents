@@ -412,41 +412,145 @@ multi-agents agent stop --project demo --agent devops
 
 ### Broadcast
 
-#### `multi-agents broadcast --project <name> --message "..." --mode oneshot|repl [--to @role|@all|agent1,agent2] [--format text|json]`
-Broadcasts messages to multiple agents.
+#### `multi-agents broadcast oneshot [--project-file <path>] [--providers-file <path>] --project <name> --to <targets> --message "..." [--timeout-ms <millis>] [--format text|json] [--progress]`
+Sends one-shot message to multiple agents with concurrency control.
 
 **Required Flags:**
 - `--project <name>`: Project name
+- `--to <targets>`: Target selection (`@all`, `@role`, or comma-separated agent list)
 - `--message "..."`: Message content
-- `--mode oneshot|repl`: Broadcast mode
 
 **Options:**
-- `--to <targets>`: Target selection (`@role`, `@all`, or comma-separated agent list)
+- `--project-file <path>`: Project configuration file (optional)
+- `--providers-file <path>`: Providers configuration file (optional)
+- `--timeout-ms <millis>`: Timeout in milliseconds (default: 5000)
 - `--format text|json`: Output format (default: text)
+- `--progress`: Show progress spinner (default: ON, use --no-progress to disable)
 
-**Modes:**
-- **oneshot**: Fan-out to all group members with concurrency=3, persist shared `broadcast_id`
-- **repl**: Send identical keystrokes to each target tmux window `{role}:{agent}`, aggregate per-target status
+**Behavior:**
+- Fan-out to all target agents with concurrency=3
+- Persists shared `broadcast_id` for correlation
+- Uses same path resolution as `config validate`
+- Shows progress spinner by default
 
 **Exit Codes:**
 - `0`: Broadcast successful
-- `2`: Invalid input
-- `8`: tmux error (repl mode)
+- `2`: Invalid input (project/agent not found, invalid targets)
+- `3`: Provider unavailable
+- `4`: Provider CLI error
+- `5`: Timeout
+- `6`: Config missing
+- `7`: Database error
 
 **Examples:**
 ```bash
-# Broadcast to all agents (oneshot mode)
-multi-agents broadcast --project demo --message "Starting deployment" --mode oneshot
+# Broadcast to all agents
+multi-agents broadcast oneshot --project demo --to @all --message "Starting deployment"
 
-# Broadcast to specific role (repl mode)
-multi-agents broadcast --project demo --message "Check status" --mode repl --to @backend
+# Broadcast to specific role
+multi-agents broadcast oneshot --project demo --to @backend --message "Database schema updated"
 
-# Broadcast to specific agents (repl mode)
-multi-agents broadcast --project demo --message "Update config" --mode repl --to backend,frontend
+# Broadcast to specific agents
+multi-agents broadcast oneshot --project demo --to backend,frontend --message "Update config"
 
-# JSON output
-multi-agents broadcast --project demo --message "Status check" --mode oneshot --format json
+# JSON output with custom timeout
+multi-agents broadcast oneshot --project demo --to @all --message "Status check" --format json --timeout-ms 10000
+
+# Disable progress spinner
+multi-agents broadcast oneshot --project demo --to @all --message "Quick update" --no-progress
 ```
+
+#### `multi-agents broadcast repl [--project-file <path>] --project <name> --to <targets> --message "..." [--timeout-ms <millis>] [--format text|json] [--progress]`
+Sends message to agents in REPL mode using tmux send-keys.
+
+**Required Flags:**
+- `--project <name>`: Project name
+- `--to <targets>`: Target selection (`@all`, `@role`, or comma-separated agent list)
+- `--message "..."`: Message content
+
+**Options:**
+- `--project-file <path>`: Project configuration file (optional)
+- `--timeout-ms <millis>`: Timeout in milliseconds (default: 5000)
+- `--format text|json`: Output format (default: text)
+- `--progress`: Show progress spinner (default: ON, use --no-progress to disable)
+
+**Behavior:**
+- Sends identical keystrokes to each target tmux window `{role}:{agent}`
+- Aggregates per-target status
+- Requires tmux sessions to be running
+- Uses same path resolution as `config validate`
+
+**Exit Codes:**
+- `0`: Broadcast successful
+- `2`: Invalid input (project/agent not found, invalid targets)
+- `5`: Timeout
+- `6`: Config missing
+- `7`: Database error
+- `8`: tmux error (session not found)
+
+**Examples:**
+```bash
+# Broadcast to all agents in REPL mode
+multi-agents broadcast repl --project demo --to @all --message "Check status"
+
+# Broadcast to specific role in REPL mode
+multi-agents broadcast repl --project demo --to @backend --message "Run tests"
+
+# Broadcast to specific agents in REPL mode
+multi-agents broadcast repl --project demo --to backend,frontend --message "Update dependencies"
+
+# JSON output with custom timeout
+multi-agents broadcast repl --project demo --to @all --message "Status report" --format json --timeout-ms 3000
+```
+
+#### Troubleshooting Broadcast
+
+**Common Issues:**
+
+1. **Config files not found (Exit code 6)**
+   ```bash
+   # Error: project config not found
+   # Solution: Initialize configuration first
+   multi-agents config init
+   multi-agents db init
+   multi-agents project add --name demo
+   ```
+
+2. **Project/agent not found (Exit code 2)**
+   ```bash
+   # Error: Project 'demo' not found
+   # Solution: Create project and agents
+   multi-agents project add --name demo
+   multi-agents agent add --project demo --name backend --role backend --provider gemini --model 2.0
+   ```
+
+3. **tmux error in REPL mode (Exit code 8)**
+   ```bash
+   # Error: tmux session not found
+   # Solution: Start agents in REPL mode first
+   multi-agents agent run --project demo --agent backend
+   multi-agents broadcast repl --project demo --to @all --message "Test"
+   ```
+
+4. **Provider unavailable (Exit code 3)**
+   ```bash
+   # Error: Provider CLI not found
+   # Solution: Install required CLIs
+   multi-agents doctor  # Check what's missing
+   ```
+
+5. **Timeout errors (Exit code 5)**
+   ```bash
+   # Error: Operation timed out
+   # Solution: Increase timeout or check provider responsiveness
+   multi-agents broadcast oneshot --project demo --to @all --message "Test" --timeout-ms 10000
+   ```
+
+**Performance Tips:**
+- Use `--no-progress` for faster execution in scripts
+- `oneshot` mode is faster for one-time messages
+- `repl` mode is better for interactive commands
+- Use specific agent names instead of `@all` for better performance
 
 ### TUI & Context
 
