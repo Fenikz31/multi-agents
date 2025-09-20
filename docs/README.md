@@ -1,15 +1,16 @@
 # Multi-Agents CLI — Documentation
 
-This documentation describes the design, roadmap, and usage of the Multi-Agents CLI that orchestrates Gemini CLI, Claude Code, and Cursor Agent using tmux. It focuses on CLI-only integrations, YAML role configuration, tool allowlists, NDJSON logging, and a concurrency limit of 3.
+This documentation describes the design, roadmap, and usage of the Multi-Agents CLI that orchestrates Gemini CLI, Claude Code, and Cursor Agent using tmux. It focuses on CLI-only integrations, YAML role configuration, tool allowlists, NDJSON logging, broadcast functionality, and a concurrency limit of 3.
 
 ## Architecture
 
 The CLI has been refactored from a monolithic 3410-line `main.rs` file into a modular architecture:
 
 - **Modular design**: 30+ files organized by functionality
-- **Clear separation**: CLI parsing, commands, utilities, tmux management, logging
-- **Comprehensive testing**: 24 unit and integration tests
+- **Clear separation**: CLI parsing, commands, utilities, tmux management, logging, broadcast
+- **Comprehensive testing**: 24+ unit and integration tests including performance tests
 - **Maintainable code**: Each module has a single responsibility
+- **Broadcast functionality**: Send messages to multiple agents simultaneously
 
 See the [Overview](./overview.md) for the system architecture and [Testing strategy](./testing.md) for test organization.
 
@@ -23,5 +24,6 @@ See the [Overview](./overview.md) for the system architecture and [Testing strat
 - [Logging (NDJSON)](./logging.md)
 - [Security and allowlists](./security.md)
 - [Workflows (user, agents, broadcast)](./workflows.md)
+- [Broadcast User Guide](./broadcast-user-guide.md) - **NEW!** Complete guide to broadcast functionality
 - [Testing strategy](./testing.md)
 - [Glossary](./glossary.md)
