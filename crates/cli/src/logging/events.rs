@@ -36,7 +36,7 @@ impl NdjsonEvent {
 
     pub fn new_stdout_line(project_id: &str, agent_role: &str, agent_id: &str, provider: &str, text: &str) -> Self {
         // Remove ANSI escape sequences from text
-        let clean_text = remove_ansi_escape_sequences(text);
+        let clean_text = super::ndjson::remove_ansi_escape_sequences(text);
         
         Self {
             ts: chrono::Utc::now().to_rfc3339(),
@@ -76,7 +76,7 @@ impl NdjsonEvent {
         provider: &str,
         event_type: &str,
         dur_ms: u64,
-        status: &str,
+        _status: &str,
         details: Option<&str>
     ) -> Self {
         let text = match details {
@@ -151,28 +151,4 @@ impl NdjsonEvent {
     }
 }
 
-/// Remove ANSI escape sequences from text
-pub fn remove_ansi_escape_sequences(text: &str) -> String {
-    // Simple regex to remove ANSI escape sequences
-    // This handles most common ANSI codes like \x1b[31m, \x1b[0m, etc.
-    let mut result = String::new();
-    let mut chars = text.chars().peekable();
-    
-    while let Some(c) = chars.next() {
-        if c == '\x1b' {
-            // Skip the escape sequence
-            if let Some('[') = chars.next() {
-                // Skip until we find a letter (end of ANSI sequence)
-                while let Some(ch) = chars.next() {
-                    if ch.is_alphabetic() {
-                        break;
-                    }
-                }
-            }
-        } else {
-            result.push(c);
-        }
-    }
-    
-    result
-}
+// Note: remove_ansi_escape_sequences is defined in ndjson.rs to avoid duplication

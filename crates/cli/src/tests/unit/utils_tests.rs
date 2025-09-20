@@ -8,6 +8,7 @@ mod tests {
     use std::fs::File;
     use std::io::Write;
 
+    #[allow(dead_code)]
     fn write_tmp(contents: &str) -> String {
         let mut p = std::env::temp_dir();
         p.push(format!("multi-agents-test-{}.ndjson", uuid_v4_like()));
@@ -16,6 +17,7 @@ mod tests {
         p.to_string_lossy().to_string()
     }
 
+    #[allow(dead_code)]
     fn uuid_like() -> String {
         // simple unique-ish string using nanos timestamp
         format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos())

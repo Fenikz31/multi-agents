@@ -1,6 +1,5 @@
 //! Broadcast target resolution and management
 
-use std::collections::HashSet;
 
 /// Broadcast target types
 #[derive(Debug, Clone, PartialEq)]

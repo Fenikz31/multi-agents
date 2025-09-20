@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use uuid::Uuid;
 use crate::tmux::manager::TmuxManager;
 use crate::logging::emit_metrics_event;
-use super::targets::{BroadcastTarget, BroadcastResult, BroadcastSummary};
+use super::targets::{BroadcastResult, BroadcastSummary};
 
 /// Broadcast manager for handling multi-target operations
 pub struct BroadcastManager {

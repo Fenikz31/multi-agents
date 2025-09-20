@@ -7,7 +7,7 @@ use crate::utils::locks::{AgentLock, with_agent_lock};
 #[test]
 fn test_agent_lock_basic_functionality() {
     let temp_dir = TempDir::new().unwrap();
-    let lock_file = temp_dir.path().join("test.lock");
+    let _lock_file = temp_dir.path().join("test.lock");
     
     let mut lock = AgentLock::new("test", "agent");
     
@@ -146,7 +146,7 @@ fn test_log_permission_handling() {
 fn test_healthcheck_functionality() {
     // Test that the healthcheck function exists and can be imported
     // We don't actually call it since it requires a real tmux session
-    use crate::commands::agent::perform_healthcheck;
+    
     use crate::tmux::manager::TmuxManager;
     use std::time::Duration;
     
@@ -211,7 +211,7 @@ fn test_failure_metrics_emission() {
     use tempfile::TempDir;
     
     let temp_dir = TempDir::new().unwrap();
-    let log_file = temp_dir.path().join("test.ndjson");
+    let _log_file = temp_dir.path().join("test.ndjson");
     
     // Test failure metrics emission
     let result = emit_failure_metrics_event(

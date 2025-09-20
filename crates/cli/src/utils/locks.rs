@@ -1,7 +1,6 @@
 //! File-based locking utilities for agent concurrency control
 
 use std::fs;
-use std::path::Path;
 use std::time::{Duration, Instant};
 use crate::utils::errors::exit_with;
 
@@ -142,7 +141,7 @@ where
 mod tests {
     use super::*;
     use tempfile::TempDir;
-    use std::thread;
+    
     use std::time::Duration;
     
     #[test]

@@ -64,7 +64,7 @@ mod tests {
 
     #[test]
     fn test_remove_ansi_escape_sequences() {
-        use crate::logging::events::remove_ansi_escape_sequences;
+        use crate::logging::ndjson::remove_ansi_escape_sequences;
         
         let ansi_text = "\u{1b}[31mred\u{1b}[0m text \u{1b}[32mgreen\u{1b}[0m";
         let clean_text = remove_ansi_escape_sequences(ansi_text);

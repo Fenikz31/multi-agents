@@ -9,10 +9,3 @@ pub mod agent_tests;
 pub mod tmux_tests;
 
 // Re-export all integration tests
-pub use config_tests::*;
-pub use doctor_tests::*;
-pub use db_tests::*;
-pub use send_tests::*;
-pub use session_tests::*;
-pub use agent_tests::*;
-pub use tmux_tests::*;
