@@ -7,6 +7,7 @@ pub mod send;
 pub mod session;
 pub mod agent;
 pub mod init;
+pub mod broadcast;
 
 // Re-export all command functions
 pub use config::*;
@@ -16,3 +17,4 @@ pub use send::*;
 pub use session::*;
 pub use agent::*;
 pub use init::*;
+pub use broadcast::*;

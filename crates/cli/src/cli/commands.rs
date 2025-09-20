@@ -71,6 +71,11 @@ pub enum Commands {
         #[command(subcommand)]
         cmd: AgentCmd,
     },
+    /// Broadcast messages to multiple agents
+    Broadcast {
+        #[command(subcommand)]
+        cmd: BroadcastCmd,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -208,6 +213,46 @@ pub enum AgentCmd {
         #[arg(long)] agent: String,
         /// Optional: override timeout in milliseconds (default 5000)
         #[arg(long, value_name = "MILLIS")] timeout_ms: Option<u64>,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum BroadcastCmd {
+    /// Send one-shot message to multiple agents
+    Oneshot {
+        /// Optional: explicit path; else ENV/defaults resolution is used
+        #[arg(long, value_name = "PATH")] project_file: Option<String>,
+        /// Optional: explicit path; else ENV/defaults resolution is used
+        #[arg(long, value_name = "PATH")] providers_file: Option<String>,
+        /// Project name (defaults to current directory name)
+        #[arg(long)] project: Option<String>,
+        /// Target: @all, @role, or agent name(s) (comma-separated)
+        #[arg(long)] to: String,
+        /// Message to broadcast
+        #[arg(long)] message: String,
+        /// Optional: override timeout in milliseconds (default 5000)
+        #[arg(long, value_name = "MILLIS")] timeout_ms: Option<u64>,
+        /// Output format for this command (text|json)
+        #[arg(long, value_enum, default_value_t = Format::Text)] format: Format,
+        /// Show progress spinner (default ON); disable with --no-progress
+        #[arg(long = "progress", default_value_t = true)] progress: bool,
+    },
+    /// Send message to agents in REPL mode (tmux send-keys)
+    Repl {
+        /// Optional: explicit path; else ENV/defaults resolution is used
+        #[arg(long, value_name = "PATH")] project_file: Option<String>,
+        /// Project name (defaults to current directory name)
+        #[arg(long)] project: Option<String>,
+        /// Target: @all, @role, or agent name(s) (comma-separated)
+        #[arg(long)] to: String,
+        /// Message to broadcast
+        #[arg(long)] message: String,
+        /// Optional: override timeout in milliseconds (default 5000)
+        #[arg(long, value_name = "MILLIS")] timeout_ms: Option<u64>,
+        /// Output format for this command (text|json)
+        #[arg(long, value_enum, default_value_t = Format::Text)] format: Format,
+        /// Show progress spinner (default ON); disable with --no-progress
+        #[arg(long = "progress", default_value_t = true)] progress: bool,
     },
 }
 
