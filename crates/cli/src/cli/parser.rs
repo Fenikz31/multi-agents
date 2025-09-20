@@ -44,6 +44,12 @@ impl Cli {
                 AgentCmd::Stop { project_file, project, agent, timeout_ms } =>
                     run_agent_stop(project_file.as_deref(), project.as_deref(), &agent, timeout_ms),
             },
+            Commands::Broadcast { cmd } => match cmd {
+                BroadcastCmd::Oneshot { project_file, providers_file, project, to, message, timeout_ms, format, progress } =>
+                    run_broadcast_oneshot(project_file.as_deref(), providers_file.as_deref(), project.as_deref(), &to, &message, timeout_ms, format, progress),
+                BroadcastCmd::Repl { project_file, project, to, message, timeout_ms, format, progress } =>
+                    run_broadcast_repl(project_file.as_deref(), project.as_deref(), &to, &message, timeout_ms, format, progress),
+            },
         }
     }
 }
