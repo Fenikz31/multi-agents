@@ -165,15 +165,16 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let lock_file = temp_dir.path().join("test.lock");
         
-        // Create a lock file manually
-        fs::write(&lock_file, "pid=999999\ntimestamp=2023-01-01T00:00:00Z\n").unwrap();
+        // Create a lock file manually with current PID to simulate active lock
+        let current_pid = std::process::id();
+        fs::write(&lock_file, format!("pid={}\ntimestamp=2023-01-01T00:00:00Z\n", current_pid)).unwrap();
         
         let mut lock = AgentLock {
             lock_file: lock_file.to_string_lossy().to_string(),
             _lock_guard: None,
         };
         
-        // Should timeout since lock exists and process doesn't
+        // Should timeout since lock exists and is held by current process
         let result = lock.acquire(Duration::from_millis(100));
         assert!(result.is_err());
     }
