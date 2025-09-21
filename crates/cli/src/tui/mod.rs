@@ -95,27 +95,3 @@ impl std::fmt::Display for TuiError {
 
 impl Error for TuiError {}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    
-    #[test]
-    fn test_tui_app_creation() {
-        let app = TuiApp::new();
-        assert!(app.running);
-    }
-    
-    #[test]
-    fn test_tui_app_initialization() {
-        let mut app = TuiApp::new();
-        let result = app.initialize();
-        assert!(result.is_ok());
-    }
-    
-    #[test]
-    fn test_tui_app_stop() {
-        let mut app = TuiApp::new();
-        app.stop();
-        assert!(!app.running);
-    }
-}

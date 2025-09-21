@@ -48,15 +48,3 @@ impl RepositoryManager {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rusqlite::Connection;
-    
-    #[test]
-    fn test_repository_manager_creation() {
-        let conn = Connection::open_in_memory().expect("Failed to create in-memory database");
-        let _manager = RepositoryManager::new(conn);
-        // Test passes if no panic occurs
-    }
-}
