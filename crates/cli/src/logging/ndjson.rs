@@ -101,11 +101,17 @@ pub fn remove_ansi_escape_sequences(text: &str) -> String {
     let mut result = text.to_string();
     
     // Remove CSI sequences (ESC [ ... m)
-    result = regex::Regex::new(r"\x1b\[[0-9;]*m").unwrap().replace_all(&result, "").to_string();
+    if let Ok(regex) = regex::Regex::new(r"\x1b\[[0-9;]*m") {
+        result = regex.replace_all(&result, "").to_string();
+    }
     
     // Remove other common escape sequences
-    result = regex::Regex::new(r"\x1b\[[0-9;]*[A-Za-z]").unwrap().replace_all(&result, "").to_string();
-    result = regex::Regex::new(r"\x1b\]0;[^\x07]*\x07").unwrap().replace_all(&result, "").to_string(); // OSC sequences
+    if let Ok(regex) = regex::Regex::new(r"\x1b\[[0-9;]*[A-Za-z]") {
+        result = regex.replace_all(&result, "").to_string();
+    }
+    if let Ok(regex) = regex::Regex::new(r"\x1b\]0;[^\x07]*\x07") {
+        result = regex.replace_all(&result, "").to_string(); // OSC sequences
+    }
     
     result
 }
