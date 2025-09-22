@@ -11,6 +11,8 @@ pub mod logging;
 pub mod utils;
 pub mod broadcast;
 pub mod monitoring;
+pub mod repository;
+pub mod tui;
 
 // Re-export main types for convenience
 pub use cli::Cli;

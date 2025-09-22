@@ -86,9 +86,10 @@ pub fn run_broadcast_oneshot(
     let manager = BroadcastManager::new(project_name.to_string(), timeout);
     
     // Convert agent names to role:agent format for broadcast
-    let targets: Vec<String> = agent_names.iter().map(|name| {
-        let agent = agents.iter().find(|a| a.name == *name).unwrap();
-        format!("{}:{}", agent.role, agent.name)
+    let targets: Vec<String> = agent_names.iter().filter_map(|name| {
+        agents.iter().find(|a| a.name == *name).map(|agent| {
+            format!("{}:{}", agent.role, agent.name)
+        })
     }).collect();
     
     // Create progress bar if enabled
@@ -212,9 +213,10 @@ pub fn run_broadcast_repl(
     let manager = BroadcastManager::new(project_name.to_string(), timeout);
     
     // Convert agent names to role:agent format for broadcast
-    let targets: Vec<String> = agent_names.iter().map(|name| {
-        let agent = agents.iter().find(|a| a.name == *name).unwrap();
-        format!("{}:{}", agent.role, agent.name)
+    let targets: Vec<String> = agent_names.iter().filter_map(|name| {
+        agents.iter().find(|a| a.name == *name).map(|agent| {
+            format!("{}:{}", agent.role, agent.name)
+        })
     }).collect();
     
     // Create progress bar if enabled
@@ -284,7 +286,8 @@ pub fn run_broadcast_repl(
 /// Create progress bar for broadcast operations
 fn make_progress_bar() -> ProgressBar {
     let pb = ProgressBar::new_spinner();
-    pb.set_style(ProgressStyle::with_template("{spinner} broadcasting {msg}").unwrap());
+    pb.set_style(ProgressStyle::with_template("{spinner} broadcasting {msg}")
+        .unwrap_or_else(|_| ProgressStyle::default_spinner()));
     pb.enable_steady_tick(std::time::Duration::from_millis(120));
     pb
 }
@@ -292,10 +295,72 @@ fn make_progress_bar() -> ProgressBar {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use db::Agent;
     
     #[test]
     fn test_progress_bar_creation() {
         let pb = make_progress_bar();
         assert!(!pb.is_finished());
+    }
+    
+    #[test]
+    fn test_agent_target_conversion() {
+        let agents = vec![
+            Agent {
+                id: "1".to_string(),
+                project_id: "test".to_string(),
+                name: "backend1".to_string(),
+                role: "backend".to_string(),
+                provider: "gemini".to_string(),
+                model: "2.0".to_string(),
+                system_prompt: "".to_string(),
+                allowed_tools: vec![],
+            },
+            Agent {
+                id: "2".to_string(),
+                project_id: "test".to_string(),
+                name: "frontend1".to_string(),
+                role: "frontend".to_string(),
+                provider: "claude".to_string(),
+                model: "opus".to_string(),
+                system_prompt: "".to_string(),
+                allowed_tools: vec![],
+            },
+        ];
+        
+        let agent_names = vec!["backend1".to_string(), "frontend1".to_string()];
+        let targets: Vec<String> = agent_names.iter().filter_map(|name| {
+            agents.iter().find(|a| a.name == *name).map(|agent| {
+                format!("{}:{}", agent.role, agent.name)
+            })
+        }).collect();
+        
+        assert_eq!(targets, vec!["backend:backend1", "frontend:frontend1"]);
+    }
+    
+    #[test]
+    fn test_agent_target_conversion_with_missing_agent() {
+        let agents = vec![
+            Agent {
+                id: "1".to_string(),
+                project_id: "test".to_string(),
+                name: "backend1".to_string(),
+                role: "backend".to_string(),
+                provider: "gemini".to_string(),
+                model: "2.0".to_string(),
+                system_prompt: "".to_string(),
+                allowed_tools: vec![],
+            },
+        ];
+        
+        let agent_names = vec!["backend1".to_string(), "missing_agent".to_string()];
+        let targets: Vec<String> = agent_names.iter().filter_map(|name| {
+            agents.iter().find(|a| a.name == *name).map(|agent| {
+                format!("{}:{}", agent.role, agent.name)
+            })
+        }).collect();
+        
+        // Should only include the found agent, not panic on missing one
+        assert_eq!(targets, vec!["backend:backend1"]);
     }
 }
