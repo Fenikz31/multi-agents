@@ -3,9 +3,16 @@
 use crate::cli::commands::Format;
 
 /// Exit with a specific error code and message
+#[cfg(not(test))]
 pub fn exit_with<T>(code: i32, msg: String) -> Result<T, Box<dyn std::error::Error>> {
     eprintln!("{}", msg);
     std::process::exit(code);
+}
+
+/// Test-friendly exit_with: return Err instead of exiting process
+#[cfg(test)]
+pub fn exit_with<T>(code: i32, msg: String) -> Result<T, Box<dyn std::error::Error>> {
+    Err(format!("exit({}): {}", code, msg).into())
 }
 
 /// Format error message based on output format

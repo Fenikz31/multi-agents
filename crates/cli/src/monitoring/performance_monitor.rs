@@ -136,11 +136,10 @@ impl PerformanceMonitor {
             
             // Update throughput
             let elapsed = tracker.start_time.elapsed();
-            if elapsed.as_secs() > 0 {
-                tracker.current_throughput = tracker.completed_count as f64 / elapsed.as_secs() as f64;
-                if tracker.current_throughput > tracker.peak_throughput {
-                    tracker.peak_throughput = tracker.current_throughput;
-                }
+            let elapsed_secs = elapsed.as_secs_f64().max(0.001);
+            tracker.current_throughput = tracker.completed_count as f64 / elapsed_secs;
+            if tracker.current_throughput > tracker.peak_throughput {
+                tracker.peak_throughput = tracker.current_throughput;
             }
             
             // Check for performance alerts
@@ -177,7 +176,7 @@ impl PerformanceMonitor {
                 });
             }
             
-            if tracker.current_throughput < self.performance_thresholds.min_throughput_per_second {
+            if elapsed.as_secs() >= 1 && tracker.current_throughput < self.performance_thresholds.min_throughput_per_second {
                 alerts.push(PerformanceAlert::LowThroughput {
                     broadcast_id: broadcast_id.to_string(),
                     throughput: tracker.current_throughput,
