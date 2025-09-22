@@ -1,4 +1,6 @@
-//! TUI views module (Kanban, Sessions, Detail)
-// Placeholder to satisfy MVC structure for M6.2. Concrete views will follow.
+//! TUI Views module
 
+pub mod kanban;
 
+// Re-export views for convenience
+pub use kanban::{KanbanView, KanbanColumn, KanbanSort, render_kanban_view};
