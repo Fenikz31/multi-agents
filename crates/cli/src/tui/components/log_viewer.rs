@@ -5,11 +5,11 @@
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Modifier, Style, Stylize, Styled};
+use ratatui::style::{Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Widget};
 
-use super::super::themes::{ThemePalette, Typography, ThemeKind, default_typography};
+use super::super::themes::{ThemePalette, Typography};
 
 /// Log level enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -268,7 +268,7 @@ pub fn render_log_viewer(
         log_viewer.filter.search_term.as_deref().unwrap_or("None"),
         log_viewer.logs.len()
     );
-    let filter_style = typography.caption;
+    let filter_style = typography.small.style(theme.secondary);
     let filter_bar = Paragraph::new(filter_text)
         .style(filter_style)
         .block(Block::default().borders(Borders::NONE));
@@ -309,7 +309,7 @@ pub fn render_log_viewer(
                 metadata
             );
 
-            let style = typography.body.fg(log.level.color(theme));
+            let style = typography.body.style(log.level.color(theme));
             ListItem::new(text).style(style)
         })
         .collect();
@@ -332,7 +332,7 @@ pub fn render_log_viewer(
         if log_viewer.auto_scroll { "ON" } else { "OFF" },
         log_viewer.selected_line.map_or("None".to_string(), |i| (i + 1).to_string())
     );
-    let status_style = typography.caption;
+    let status_style = typography.small.style(theme.secondary);
     let status_bar = Paragraph::new(status_text)
         .style(status_style)
         .block(Block::default().borders(Borders::NONE));
@@ -370,7 +370,7 @@ pub fn render_log_entry(
         log_entry.message
     );
 
-    let style = typography.body.fg(log_entry.level.color(theme));
+    let style = typography.body.style(log_entry.level.color(theme));
     let paragraph = Paragraph::new(text)
         .style(style)
         .block(Block::default().borders(Borders::NONE));
