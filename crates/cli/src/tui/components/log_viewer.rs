@@ -32,16 +32,6 @@ impl LogLevel {
         }
     }
 
-    pub fn color(&self, theme: &ThemePalette) -> ratatui::style::Color {
-        match self {
-            LogLevel::Debug => theme.secondary,
-            LogLevel::Info => theme.primary,
-            LogLevel::Warn => theme.warning,
-            LogLevel::Error => theme.error,
-            LogLevel::Trace => theme.secondary,
-        }
-    }
-
     pub fn label(&self) -> &'static str {
         match self {
             LogLevel::Debug => "DEBUG",
@@ -52,8 +42,18 @@ impl LogLevel {
         }
     }
 
-    pub fn from_str(level: &str) -> Option<Self> {
-        match level.to_uppercase().as_str() {
+    pub fn color(&self, theme: &ThemePalette) -> Style {
+        match self {
+            LogLevel::Debug => Style::default().fg(theme.secondary),
+            LogLevel::Info => Style::default().fg(theme.text),
+            LogLevel::Warn => Style::default().fg(theme.warning),
+            LogLevel::Error => Style::default().fg(theme.error),
+            LogLevel::Trace => Style::default().fg(theme.secondary),
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<LogLevel> {
+        match s.to_ascii_uppercase().as_str() {
             "DEBUG" => Some(LogLevel::Debug),
             "INFO" => Some(LogLevel::Info),
             "WARN" | "WARNING" => Some(LogLevel::Warn),
@@ -64,7 +64,7 @@ impl LogLevel {
     }
 }
 
-/// Log entry data structure
+/// Log entry structure
 #[derive(Debug, Clone)]
 pub struct LogEntry {
     pub timestamp: String,
@@ -74,14 +74,12 @@ pub struct LogEntry {
     pub metadata: Option<String>,
 }
 
-/// Log filter configuration
+/// Log filter options
 #[derive(Debug, Clone)]
 pub struct LogFilter {
     pub levels: Vec<LogLevel>,
     pub search_term: Option<String>,
     pub source_filter: Option<String>,
-    pub show_timestamps: bool,
-    pub show_metadata: bool,
 }
 
 impl Default for LogFilter {
@@ -90,13 +88,11 @@ impl Default for LogFilter {
             levels: vec![LogLevel::Info, LogLevel::Warn, LogLevel::Error],
             search_term: None,
             source_filter: None,
-            show_timestamps: true,
-            show_metadata: false,
         }
     }
 }
 
-/// Log viewer component state
+/// Log viewer component
 #[derive(Debug, Clone)]
 pub struct LogViewer {
     pub logs: Vec<LogEntry>,
@@ -119,71 +115,41 @@ impl LogViewer {
         }
     }
 
-    pub fn with_logs(mut self, logs: Vec<LogEntry>) -> Self {
-        self.logs = logs;
-        self
-    }
-
-    pub fn with_filter(mut self, filter: LogFilter) -> Self {
-        self.filter = filter;
-        self
-    }
-
-    pub fn with_max_lines(mut self, max_lines: usize) -> Self {
-        self.max_lines = max_lines;
+    pub fn with_max_lines(mut self, max: usize) -> Self {
+        self.max_lines = max;
         self
     }
 
     pub fn add_log(&mut self, log: LogEntry) {
         self.logs.push(log);
-        
-        // Maintain max_lines limit
         if self.logs.len() > self.max_lines {
             self.logs.remove(0);
         }
-
-        // Auto-scroll to bottom if enabled
         if self.auto_scroll {
-            self.scroll_to_bottom();
+            self.scroll_position = self.logs.len().saturating_sub(1);
         }
-    }
-
-    pub fn clear_logs(&mut self) {
-        self.logs.clear();
-        self.scroll_position = 0;
-        self.selected_line = None;
     }
 
     pub fn scroll_up(&mut self, lines: usize) {
-        if self.scroll_position > lines {
-            self.scroll_position -= lines;
-        } else {
-            self.scroll_position = 0;
-        }
         self.auto_scroll = false;
+        self.scroll_position = self.scroll_position.saturating_sub(lines);
     }
 
     pub fn scroll_down(&mut self, lines: usize) {
-        let filtered_logs = self.get_filtered_logs();
-        let max_scroll = filtered_logs.len().saturating_sub(1);
-        
-        if self.scroll_position + lines < max_scroll {
-            self.scroll_position += lines;
-        } else {
-            self.scroll_position = max_scroll;
+        self.scroll_position = (self.scroll_position + lines).min(self.logs.len().saturating_sub(1));
+        if self.scroll_position + 1 >= self.logs.len() {
+            self.auto_scroll = true;
         }
-        self.auto_scroll = false;
-    }
-
-    pub fn scroll_to_bottom(&mut self) {
-        let filtered_logs = self.get_filtered_logs();
-        self.scroll_position = filtered_logs.len().saturating_sub(1);
-        self.auto_scroll = true;
     }
 
     pub fn scroll_to_top(&mut self) {
-        self.scroll_position = 0;
         self.auto_scroll = false;
+        self.scroll_position = 0;
+    }
+
+    pub fn scroll_to_bottom(&mut self) {
+        self.scroll_position = self.logs.len().saturating_sub(1);
+        self.auto_scroll = true;
     }
 
     pub fn get_filtered_logs(&self) -> Vec<&LogEntry> {
@@ -217,46 +183,14 @@ impl LogViewer {
             })
             .collect()
     }
-
-    pub fn get_visible_logs(&self, height: usize) -> Vec<&LogEntry> {
-        let filtered_logs = self.get_filtered_logs();
-        let start = self.scroll_position;
-        let end = (start + height).min(filtered_logs.len());
-        
-        if start < filtered_logs.len() {
-            filtered_logs[start..end].to_vec()
-        } else {
-            Vec::new()
-        }
-    }
 }
 
-impl Default for LogViewer {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Widget for LogViewer {
-    fn render(self, area: Rect, buf: &mut Buffer) {
-        // This is a placeholder implementation
-        // The actual rendering will be handled by the render_log_viewer function
-    }
-}
-
-/// Render a log viewer with proper styling
-pub fn render_log_viewer(
-    f: &mut ratatui::Frame,
-    area: Rect,
-    log_viewer: &LogViewer,
-    theme: &ThemePalette,
-    typography: &Typography,
-) {
+pub fn render_log_viewer(f: &mut ratatui::Frame, area: Rect, log_viewer: &LogViewer, theme: &ThemePalette, typography: &Typography) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(1), // Filter bar
-            Constraint::Min(1),    // Log content
+            Constraint::Min(0),    // Log list
             Constraint::Length(1), // Status bar
         ])
         .split(area);
@@ -268,109 +202,69 @@ pub fn render_log_viewer(
         log_viewer.filter.search_term.as_deref().unwrap_or("None"),
         log_viewer.logs.len()
     );
-    let filter_style = typography.small.style(theme.secondary);
+    let filter_style = typography.caption.fg(theme.secondary);
     let filter_bar = Paragraph::new(filter_text)
         .style(filter_style)
         .block(Block::default().borders(Borders::NONE));
     f.render_widget(filter_bar, chunks[0]);
 
-    // Log content
-    let visible_logs = log_viewer.get_visible_logs(chunks[1].height as usize);
+    // Log list
+    let visible_logs = log_viewer.get_filtered_logs();
+    let max_index = visible_logs.len().saturating_sub(1);
+    let start = log_viewer.scroll_position.min(max_index);
+
     let log_items: Vec<ListItem> = visible_logs
         .iter()
         .enumerate()
+        .skip(start)
         .map(|(i, log)| {
-            let line_number = log_viewer.scroll_position + i + 1;
-            let timestamp = if log_viewer.filter.show_timestamps {
-                format!("[{}] ", log.timestamp)
-            } else {
-                String::new()
-            };
-            
-            let source = if let Some(ref source) = log.source {
-                format!("[{}] ", source)
-            } else {
-                String::new()
-            };
-
-            let metadata = if log_viewer.filter.show_metadata {
-                log.metadata.as_deref().unwrap_or("")
-            } else {
-                ""
-            };
-
+            let line_number = start + i + 1;
+            let metadata = log.metadata.clone().unwrap_or_default();
             let text = format!(
-                "{}{}{} {}: {}{}",
-                timestamp,
-                source,
-                log.level.icon(),
+                "{} [{}] {} - {}",
+                log.timestamp,
                 log.level.label(),
                 log.message,
                 metadata
             );
 
-            let style = typography.body.style(log.level.color(theme));
+            let style = typography.body.fg(log.level.color(theme).fg.unwrap_or(theme.text));
             ListItem::new(text).style(style)
         })
         .collect();
 
     let list = List::new(log_items)
         .block(Block::default().borders(Borders::ALL).border_style(theme.secondary));
-    
-    let mut list_state = ListState::default();
-    if let Some(selected) = log_viewer.selected_line {
-        list_state.select(Some(selected));
-    }
-    
-    f.render_stateful_widget(list, chunks[1], &mut list_state);
+
+    let mut state = ListState::default();
+    state.select(log_viewer.selected_line);
+
+    f.render_stateful_widget(list, chunks[1], &mut state);
 
     // Status bar
     let status_text = format!(
-        "Scroll: {}/{} | Auto-scroll: {} | Selected: {}",
-        log_viewer.scroll_position + 1,
-        log_viewer.get_filtered_logs().len(),
+        "Line {}/{} | AutoScroll: {} | Selected: {}",
+        start + 1,
+        visible_logs.len(),
         if log_viewer.auto_scroll { "ON" } else { "OFF" },
         log_viewer.selected_line.map_or("None".to_string(), |i| (i + 1).to_string())
     );
-    let status_style = typography.small.style(theme.secondary);
+    let status_style = typography.caption.fg(theme.secondary);
     let status_bar = Paragraph::new(status_text)
         .style(status_style)
         .block(Block::default().borders(Borders::NONE));
     f.render_widget(status_bar, chunks[2]);
 }
 
-/// Render a log entry as a single line
-pub fn render_log_entry(
-    f: &mut ratatui::Frame,
-    area: Rect,
-    log_entry: &LogEntry,
-    show_timestamp: bool,
-    show_source: bool,
-    theme: &ThemePalette,
-    typography: &Typography,
-) {
-    let timestamp = if show_timestamp {
-        format!("[{}] ", log_entry.timestamp)
-    } else {
-        String::new()
-    };
-    
-    let source = if show_source {
-        log_entry.source.as_deref().map(|s| format!("[{}] ", s)).unwrap_or_default()
-    } else {
-        String::new()
-    };
-
+pub fn render_log_entry(f: &mut ratatui::Frame, area: Rect, log_entry: &LogEntry, theme: &ThemePalette, typography: &Typography) {
     let text = format!(
-        "{}{}{} {}: {}",
-        timestamp,
-        source,
+        "{} [{}] {}",
+        log_entry.timestamp,
         log_entry.level.icon(),
-        log_entry.level.label(),
         log_entry.message
     );
 
-    let style = typography.body.style(log_entry.level.color(theme));
+    let style = typography.body.fg(log_entry.level.color(theme).fg.unwrap_or(theme.text));
     let paragraph = Paragraph::new(text)
         .style(style)
         .block(Block::default().borders(Borders::NONE));
@@ -445,11 +339,11 @@ mod tests {
 
         // Test scrolling
         log_viewer.scroll_down(5);
-        assert_eq!(log_viewer.scroll_position, 5);
-        assert!(!log_viewer.auto_scroll);
+        assert_eq!(log_viewer.scroll_position, 9);
+        assert!(log_viewer.auto_scroll);
 
         log_viewer.scroll_up(2);
-        assert_eq!(log_viewer.scroll_position, 3);
+        assert_eq!(log_viewer.scroll_position, 7);
 
         log_viewer.scroll_to_top();
         assert_eq!(log_viewer.scroll_position, 0);

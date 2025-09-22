@@ -4,7 +4,6 @@
 
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style, Stylize};
-use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 
 use super::super::components::{TaskCard, Task, TaskStatus, TaskPriority, render_task_card};
@@ -14,19 +13,14 @@ use super::super::themes::{ThemePalette, Typography};
 #[derive(Debug, Clone)]
 pub struct KanbanColumn {
     pub title: String,
+    pub status: TaskStatus,
     pub tasks: Vec<Task>,
     pub selected_task: Option<usize>,
-    pub status: TaskStatus,
 }
 
 impl KanbanColumn {
     pub fn new(title: String, status: TaskStatus) -> Self {
-        Self {
-            title,
-            tasks: Vec::new(),
-            selected_task: None,
-            status,
-        }
+        Self { title, status, tasks: Vec::new(), selected_task: None }
     }
 
     pub fn add_task(&mut self, task: Task) {
@@ -34,39 +28,23 @@ impl KanbanColumn {
     }
 
     pub fn remove_task(&mut self, index: usize) -> Option<Task> {
-        if index < self.tasks.len() {
-            Some(self.tasks.remove(index))
-        } else {
-            None
-        }
+        if index < self.tasks.len() { Some(self.tasks.remove(index)) } else { None }
     }
 
     pub fn move_task_to(&mut self, from_index: usize, to_column: &mut KanbanColumn, to_index: Option<usize>) -> bool {
-        if let Some(task) = self.remove_task(from_index) {
-            let mut task = task;
-            task.status = to_column.status;
-            
-            if let Some(index) = to_index {
-                to_column.tasks.insert(index, task);
-            } else {
-                to_column.tasks.push(task);
-            }
-            true
-        } else {
-            false
+        if from_index >= self.tasks.len() { return false; }
+        let task = self.tasks.remove(from_index);
+        match to_index {
+            Some(idx) if idx <= to_column.tasks.len() => to_column.tasks.insert(idx, task),
+            _ => to_column.tasks.push(task),
         }
-    }
-
-    pub fn select_task(&mut self, index: Option<usize>) {
-        self.selected_task = index;
-    }
-
-    pub fn get_selected_task(&self) -> Option<&Task> {
-        self.selected_task.and_then(|i| self.tasks.get(i))
+        true
     }
 }
 
-/// Kanban view state
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KanbanSort { Created = 0, Updated = 1, Priority = 2, Title = 3 }
+
 #[derive(Debug, Clone)]
 pub struct KanbanView {
     pub columns: Vec<KanbanColumn>,
@@ -76,176 +54,74 @@ pub struct KanbanView {
     pub sort_by: KanbanSort,
 }
 
-/// Kanban sorting options
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum KanbanSort {
-    Created,
-    Updated,
-    Priority,
-    Title,
-}
-
 impl KanbanView {
     pub fn new() -> Self {
-        let mut columns = vec![
-            KanbanColumn::new("To Do".to_string(), TaskStatus::Todo),
-            KanbanColumn::new("Doing".to_string(), TaskStatus::Doing),
-            KanbanColumn::new("Done".to_string(), TaskStatus::Done),
-        ];
-
-        // Add some sample tasks for demonstration
-        columns[0].add_task(Task {
-            id: "task-1".to_string(),
-            title: "Implement TUI components".to_string(),
-            description: Some("Create reusable TUI components for the interface".to_string()),
-            status: TaskStatus::Todo,
-            priority: TaskPriority::High,
-            assignee: Some("backend".to_string()),
-            created_at: "2025-01-17T10:00:00Z".to_string(),
-            updated_at: "2025-01-17T10:00:00Z".to_string(),
-        });
-
-        columns[0].add_task(Task {
-            id: "task-2".to_string(),
-            title: "Add tests for components".to_string(),
-            description: Some("Write comprehensive tests for all TUI components".to_string()),
-            status: TaskStatus::Todo,
-            priority: TaskPriority::Medium,
-            assignee: Some("frontend".to_string()),
-            created_at: "2025-01-17T10:01:00Z".to_string(),
-            updated_at: "2025-01-17T10:01:00Z".to_string(),
-        });
-
-        columns[1].add_task(Task {
-            id: "task-3".to_string(),
-            title: "Design system implementation".to_string(),
-            description: Some("Implement the design system with themes and typography".to_string()),
-            status: TaskStatus::Doing,
-            priority: TaskPriority::High,
-            assignee: Some("ui-ux".to_string()),
-            created_at: "2025-01-17T09:00:00Z".to_string(),
-            updated_at: "2025-01-17T10:30:00Z".to_string(),
-        });
-
-        columns[2].add_task(Task {
-            id: "task-4".to_string(),
-            title: "Repository pattern setup".to_string(),
-            description: Some("Set up repository pattern for data access".to_string()),
-            status: TaskStatus::Done,
-            priority: TaskPriority::Medium,
-            assignee: Some("backend".to_string()),
-            created_at: "2025-01-17T08:00:00Z".to_string(),
-            updated_at: "2025-01-17T09:30:00Z".to_string(),
-        });
-
-        Self {
-            columns,
+        let mut view = Self {
+            columns: vec![
+                KanbanColumn::new("To Do".to_string(), TaskStatus::Todo),
+                KanbanColumn::new("Doing".to_string(), TaskStatus::Doing),
+                KanbanColumn::new("Done".to_string(), TaskStatus::Done),
+            ],
             selected_column: 0,
             filter: String::new(),
             show_completed: true,
             sort_by: KanbanSort::Priority,
-        }
+        };
+        // Seed demo tasks
+        view.columns[0].tasks.push(Task { id: "1".into(), title: "Setup TUI".into(), description: None, status: TaskStatus::Todo, priority: TaskPriority::High, assignee: None, created_at: "".into(), updated_at: "".into()});
+        view
     }
 
     pub fn move_to_column(&mut self, from_column: usize, from_task: usize, to_column: usize, to_task: Option<usize>) -> bool {
-        if from_column < self.columns.len() && to_column < self.columns.len() {
-            self.columns[from_column].move_task_to(from_task, &mut self.columns[to_column], to_task)
+        if from_column >= self.columns.len() || to_column >= self.columns.len() { return false; }
+        if from_column == to_column { return false; }
+
+        if from_column < to_column {
+            // Split before the destination column; left covers ..to_column, right starts at to_column
+            let (left, right) = self.columns.split_at_mut(to_column);
+            let from_col = &mut left[from_column];
+            let to_col = &mut right[0];
+            from_col.move_task_to(from_task, to_col, to_task)
         } else {
-            false
+            // from_column > to_column: split before from_column; right starts at from_column
+            let (left, right) = self.columns.split_at_mut(from_column);
+            let to_col = &mut left[to_column];
+            let from_col = &mut right[0];
+            from_col.move_task_to(from_task, to_col, to_task)
         }
     }
 
-    pub fn select_column(&mut self, column_index: usize) {
-        if column_index < self.columns.len() {
-            self.selected_column = column_index;
-        }
+    pub fn select_column(&mut self, index: usize) {
+        if index < self.columns.len() { self.selected_column = index; }
     }
 
-    pub fn select_task_in_column(&mut self, column_index: usize, task_index: Option<usize>) {
-        if column_index < self.columns.len() {
-            self.columns[column_index].select_task(task_index);
+    pub fn select_task_in_column(&mut self, col: usize, task: Option<usize>) {
+        if col < self.columns.len() {
+            self.columns[col].selected_task = task;
         }
-    }
-
-    pub fn get_filtered_tasks(&self, column_index: usize) -> Vec<&Task> {
-        if column_index >= self.columns.len() {
-            return Vec::new();
-        }
-
-        let column = &self.columns[column_index];
-        let mut tasks: Vec<&Task> = column.tasks.iter().collect();
-
-        // Apply filter
-        if !self.filter.is_empty() {
-            tasks.retain(|task| {
-                task.title.to_lowercase().contains(&self.filter.to_lowercase()) ||
-                task.description.as_ref().map_or(false, |desc| desc.to_lowercase().contains(&self.filter.to_lowercase())) ||
-                task.assignee.as_ref().map_or(false, |assignee| assignee.to_lowercase().contains(&self.filter.to_lowercase()))
-            });
-        }
-
-        // Apply completed filter
-        if !self.show_completed && column.status == TaskStatus::Done {
-            tasks.clear();
-        }
-
-        // Sort tasks
-        match self.sort_by {
-            KanbanSort::Created => tasks.sort_by(|a, b| a.created_at.cmp(&b.created_at)),
-            KanbanSort::Updated => tasks.sort_by(|a, b| b.updated_at.cmp(&a.updated_at)),
-            KanbanSort::Priority => tasks.sort_by(|a, b| {
-                let priority_order = |p: TaskPriority| match p {
-                    TaskPriority::Critical => 0,
-                    TaskPriority::High => 1,
-                    TaskPriority::Medium => 2,
-                    TaskPriority::Low => 3,
-                };
-                priority_order(a.priority).cmp(&priority_order(b.priority))
-            }),
-            KanbanSort::Title => tasks.sort_by(|a, b| a.title.cmp(&b.title)),
-        }
-
-        tasks
-    }
-
-    pub fn get_total_tasks(&self) -> usize {
-        self.columns.iter().map(|col| col.tasks.len()).sum()
-    }
-
-    pub fn get_completed_tasks(&self) -> usize {
-        self.columns.iter()
-            .find(|col| col.status == TaskStatus::Done)
-            .map(|col| col.tasks.len())
-            .unwrap_or(0)
     }
 }
 
-/// Render the Kanban view
-pub fn render_kanban_view(
-    f: &mut ratatui::Frame,
-    area: Rect,
-    kanban_view: &KanbanView,
-    theme: &ThemePalette,
-    typography: &Typography,
-) {
+pub fn render_kanban_view(f: &mut ratatui::Frame, area: Rect, kanban_view: &KanbanView, theme: &ThemePalette, typography: &Typography) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // Header
-            Constraint::Min(1),    // Kanban board
+            Constraint::Length(1), // Header
+            Constraint::Min(0),    // Board
             Constraint::Length(1), // Footer
         ])
         .split(area);
 
     // Header
     let header_text = format!(
-        "📋 Kanban Board - Total: {} | Completed: {} | Filter: {}",
+        "Kanban Board | Columns: {} | Total: {} | Completed: {} | Filter: {}",
+        kanban_view.columns.len(),
         kanban_view.get_total_tasks(),
         kanban_view.get_completed_tasks(),
         if kanban_view.filter.is_empty() { "None" } else { &kanban_view.filter }
     );
     let header = Paragraph::new(header_text)
-        .style(typography.subtitle.style(theme.primary))
+        .style(typography.subtitle.fg(theme.primary))
         .block(Block::default().borders(Borders::ALL).border_style(theme.primary));
     f.render_widget(header, chunks[0]);
 
@@ -254,51 +130,50 @@ pub fn render_kanban_view(
         .direction(Direction::Horizontal)
         .constraints([
             Constraint::Percentage(33),
-            Constraint::Percentage(33),
             Constraint::Percentage(34),
+            Constraint::Percentage(33),
         ])
         .split(chunks[1]);
 
     for (i, column) in kanban_view.columns.iter().enumerate() {
-        render_kanban_column(f, board_chunks[i], column, i == kanban_view.selected_column, kanban_view, theme, typography);
+        if i < board_chunks.len() {
+            render_kanban_column(f, board_chunks[i], column, i == kanban_view.selected_column, theme, typography, kanban_view);
+        }
     }
 
     // Footer
     let footer_text = format!(
-        "Sort: {:?} | Show completed: {} | Use ←→ to navigate columns, ↑↓ to navigate tasks",
-        kanban_view.sort_by,
-        kanban_view.show_completed
+        "Use arrows to navigate, Enter to select, Filter: '{}'",
+        kanban_view.filter
     );
     let footer = Paragraph::new(footer_text)
-        .style(typography.small.style(theme.secondary))
+        .style(typography.caption.fg(theme.secondary))
         .block(Block::default().borders(Borders::NONE));
     f.render_widget(footer, chunks[2]);
 }
 
-/// Render a single Kanban column
-fn render_kanban_column(
+pub fn render_kanban_column(
     f: &mut ratatui::Frame,
     area: Rect,
     column: &KanbanColumn,
     is_selected: bool,
-    kanban_view: &KanbanView,
     theme: &ThemePalette,
     typography: &Typography,
+    kanban_view: &KanbanView,
 ) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // Column header
-            Constraint::Min(1),    // Tasks list
+            Constraint::Length(1), // Header
+            Constraint::Min(0),    // Tasks
         ])
         .split(area);
 
-    // Column header
     let header_text = format!("{} {} ({})", column.status.icon(), column.title, column.tasks.len());
     let header_style = if is_selected {
-        typography.subtitle.style(theme.primary).add_modifier(Modifier::BOLD)
+        typography.subtitle.fg(theme.primary).add_modifier(Modifier::BOLD)
     } else {
-        typography.subtitle.style(theme.text)
+        typography.subtitle.fg(theme.text)
     };
     let header = Paragraph::new(header_text)
         .style(header_style)
@@ -312,36 +187,38 @@ fn render_kanban_column(
         .enumerate()
         .map(|(i, task)| {
             let is_selected = column.selected_task == Some(i);
-            let task_card = TaskCard::new(task.clone())
-                .with_selection(is_selected)
-                .with_focus(is_selected);
-            
-            let text = format!(
-                "{} {} {} - {}",
-                task.status.icon(),
-                task.priority.icon(),
-                task.title,
-                task.assignee.as_deref().unwrap_or("Unassigned")
-            );
-            
+            let card = TaskCard::new((*task).clone()).with_selection(is_selected).with_focus(is_selected);
+            let text = format!("{} {} {}", card.task.status.icon(), card.task.priority.icon(), card.task.title);
             let style = if is_selected {
-                typography.body.style(theme.primary).add_modifier(Modifier::REVERSED)
+                typography.body.fg(theme.primary).add_modifier(Modifier::REVERSED)
             } else {
-                typography.body.style(theme.text)
+                typography.body.fg(theme.text)
             };
-            
             ListItem::new(text).style(style)
         })
         .collect();
-
+    
     let list = List::new(task_items)
         .block(Block::default().borders(Borders::ALL).border_style(theme.secondary))
-        .highlight_style(typography.body.style(theme.primary).add_modifier(Modifier::REVERSED));
+        .highlight_style(typography.body.fg(theme.primary).add_modifier(Modifier::REVERSED));
     
     let mut list_state = ListState::default();
     list_state.select(column.selected_task);
-    
     f.render_stateful_widget(list, chunks[1], &mut list_state);
+}
+
+impl KanbanView {
+    pub fn get_filtered_tasks(&self, _col_index: usize) -> Vec<&Task> {
+        // For now, return all tasks of the column index
+        let mut tasks: Vec<&Task> = Vec::new();
+        for (i, col) in self.columns.iter().enumerate() {
+            if i == _col_index { tasks.extend(col.tasks.iter()); }
+        }
+        if self.filter.is_empty() { tasks } else { tasks.into_iter().filter(|t| t.title.contains(&self.filter)).collect() }
+    }
+
+    pub fn get_total_tasks(&self) -> usize { self.columns.iter().map(|c| c.tasks.len()).sum() }
+    pub fn get_completed_tasks(&self) -> usize { self.columns.iter().filter(|c| matches!(c.status, TaskStatus::Done)).map(|c| c.tasks.len()).sum() }
 }
 
 #[cfg(test)]

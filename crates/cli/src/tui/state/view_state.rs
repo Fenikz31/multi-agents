@@ -67,7 +67,12 @@ impl KanbanState {
         for task in &self.tasks {
             if self.filter.is_empty() || task.title.to_lowercase().contains(&self.filter.to_lowercase()) {
                 for column in &mut columns {
-                    if column.status == task.status {
+                    // Treat legacy/in-flight statuses as aliases
+                    let task_status = match task.status.as_str() {
+                        "in_progress" => "doing",
+                        other => other,
+                    };
+                    if column.status == task_status {
                         column.tasks.push(task.clone());
                     }
                 }
@@ -103,8 +108,9 @@ impl KanbanState {
 impl TuiState for KanbanState {
     fn handle_input(&mut self, input: &str) -> Result<StateTransition, Box<dyn Error>> {
         match input.trim() {
-            "q" | "quit" => Ok(StateTransition::Transition("app".to_string())),
+            "q" | "quit" => Ok(StateTransition::Exit),
             "h" | "help" => Ok(StateTransition::Transition("help".to_string())),
+            "s" => Ok(StateTransition::Transition("sessions".to_string())),
             "left" | "←" => {
                 if self.selected_column > 0 {
                     self.selected_column -= 1;
@@ -214,7 +220,7 @@ impl TuiState for KanbanState {
     }
     
     fn can_transition_to(&self, target_state: &str) -> bool {
-        matches!(target_state, "app" | "help")
+        matches!(target_state, "sessions" | "help")
     }
 }
 
@@ -267,8 +273,9 @@ impl SessionsState {
 impl TuiState for SessionsState {
     fn handle_input(&mut self, input: &str) -> Result<StateTransition, Box<dyn Error>> {
         match input.trim() {
-            "q" | "quit" => Ok(StateTransition::Transition("app".to_string())),
+            "q" | "quit" => Ok(StateTransition::Exit),
             "h" | "help" => Ok(StateTransition::Transition("help".to_string())),
+            "k" => Ok(StateTransition::Transition("kanban".to_string())),
             "up" | "↑" => {
                 if let Some(selected) = self.selected_session {
                     if selected > 0 {
@@ -320,6 +327,9 @@ impl TuiState for SessionsState {
         
         let filtered = self.get_filtered_sessions();
         
+        if filtered.is_empty() {
+            output.push_str("No sessions found\n");
+        }
         for (i, session) in filtered.iter().enumerate() {
             let marker = if Some(i) == self.selected_session { "▶ " } else { "  " };
             output.push_str(&format!("{}{}:{} ({}) - {} - {}\n", 
@@ -339,7 +349,7 @@ impl TuiState for SessionsState {
     }
     
     fn can_transition_to(&self, target_state: &str) -> bool {
-        matches!(target_state, "app" | "help")
+        matches!(target_state, "kanban" | "help")
     }
 }
 

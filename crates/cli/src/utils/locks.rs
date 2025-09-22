@@ -91,10 +91,17 @@ impl AgentLock {
     
     /// Release the lock
     pub fn release(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(_) = self._lock_guard.take() {
-            fs::remove_file(&self.lock_file)?;
+        match self._lock_guard.take() {
+            Some(_) => {
+                // Best-effort remove; treat missing file as already released (idempotent)
+                match fs::remove_file(&self.lock_file) {
+                    Ok(_) => Ok(()),
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                    Err(e) => Err(format!("Failed to remove lock file '{}': {}", self.lock_file, e).into()),
+                }
+            }
+            None => Ok(()),
         }
-        Ok(())
     }
 }
 
