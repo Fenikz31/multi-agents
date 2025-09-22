@@ -4,6 +4,11 @@
 //! implementing the TUI functionality using ratatui.
 
 pub mod state;
+pub mod app;
+pub mod views;
+pub mod components;
+pub mod navigation;
+pub mod themes;
 
 use std::error::Error;
 use state::{StateManager, TuiState, StateTransition};
