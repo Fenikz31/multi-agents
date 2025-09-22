@@ -1,0 +1,137 @@
+//! TUI application runtime backed by ratatui + crossterm
+//! 
+//! This provides the event loop, terminal setup/teardown, and delegates
+//! rendering to the current `StateManager` by wrapping its string output
+//! into a simple Paragraph for now. This establishes the infrastructure
+//! required by M6.2; dedicated views/components will evolve hereafter.
+
+use std::error::Error;
+use std::io;
+use std::time::{Duration, Instant};
+
+use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
+use crossterm::{execute};
+use ratatui::backend::CrosstermBackend;
+use ratatui::layout::{Constraint, Direction, Layout};
+use ratatui::style::{Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::Terminal;
+
+use super::state::{StateManager, StateTransition};
+use super::TuiError;
+
+/// TUI App using ratatui/crossterm
+pub struct TuiRuntime {
+    state_manager: StateManager,
+    tick_rate: Duration,
+    running: bool,
+}
+
+impl TuiRuntime {
+    /// Create a new runtime with a default tick of 200ms
+    pub fn new(state_manager: StateManager) -> Self {
+        Self { state_manager, tick_rate: Duration::from_millis(200), running: true }
+    }
+
+    /// Initialize app states and set initial state
+    fn initialize_states(&mut self) -> Result<(), Box<dyn Error>> {
+        // Add initial states
+        self.state_manager.add_state("help".to_string(), Box::new(super::state::navigation_state::HelpState::new()));
+        self.state_manager.add_state("project_select".to_string(), Box::new(super::state::navigation_state::ProjectSelectState::new()));
+        self.state_manager.add_state("kanban".to_string(), Box::new(super::state::view_state::KanbanState::new()));
+        self.state_manager.add_state("sessions".to_string(), Box::new(super::state::view_state::SessionsState::new()));
+
+        // Initial state
+        self.state_manager.set_current_state("project_select".to_string())?;
+        Ok(())
+    }
+
+    /// Run the event/render loop
+    pub fn run(&mut self) -> Result<(), Box<dyn Error>> {
+        self.initialize_states()?;
+
+        // Terminal setup
+        enable_raw_mode().map_err(|e| TuiError::InputError(format!("enable_raw_mode: {}", e)))?;
+        let mut stdout = io::stdout();
+        execute!(&mut stdout, EnterAlternateScreen).map_err(|e| TuiError::RenderError(format!("enter alt screen: {}", e)))?;
+        let backend = CrosstermBackend::new(stdout);
+        let mut terminal = Terminal::new(backend).map_err(|e| TuiError::RenderError(format!("terminal: {}", e)))?;
+        terminal.hide_cursor().ok();
+
+        let mut last_tick = Instant::now();
+        let tick_rate = self.tick_rate;
+
+        let res = (|| -> Result<(), Box<dyn Error>> {
+            while self.running {
+                // Render current state as text for now
+                let output = self.state_manager.render()?;
+                terminal.draw(|f| {
+                    let size = f.size();
+                    let chunks = Layout::default()
+                        .direction(Direction::Vertical)
+                        .constraints([Constraint::Percentage(100)].as_ref())
+                        .split(size);
+
+                    let block = Block::default().title(Line::from(vec![Span::raw("Multi-Agents TUI")])).borders(Borders::ALL);
+                    let para = Paragraph::new(output).block(block).style(Style::default());
+                    f.render_widget(para, chunks[0]);
+                })?;
+
+                let timeout = tick_rate.saturating_sub(last_tick.elapsed());
+                if event::poll(timeout)? {
+                    if let Event::Key(key) = event::read()? {
+                        if key.kind == KeyEventKind::Press {
+                            match key.code {
+                                KeyCode::Char('q') => {
+                                    self.running = false;
+                                }
+                                KeyCode::Char('h') => {
+                                    self.process_input("h")?;
+                                }
+                                KeyCode::Char('k') => {
+                                    self.process_input("k")?;
+                                }
+                                KeyCode::Char('s') => {
+                                    self.process_input("s")?;
+                                }
+                                KeyCode::Up => { self.process_input("up")?; }
+                                KeyCode::Down => { self.process_input("down")?; }
+                                KeyCode::Left => { self.process_input("left")?; }
+                                KeyCode::Right => { self.process_input("right")?; }
+                                KeyCode::Enter => { self.process_input("enter")?; }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+                if last_tick.elapsed() >= tick_rate {
+                    last_tick = Instant::now();
+                }
+            }
+            Ok(())
+        })();
+
+        // Teardown
+        terminal.show_cursor().ok();
+        // Leave alternate screen without consuming the terminal backend
+        let mut stdout = io::stdout();
+        execute!(&mut stdout, LeaveAlternateScreen).ok();
+        disable_raw_mode().ok();
+
+        // bubble up any error after teardown
+        res
+    }
+
+    fn process_input(&mut self, input: &str) -> Result<(), Box<dyn Error>> {
+        let transition = self.state_manager.handle_input(input)?;
+        match transition {
+            StateTransition::Exit => { self.running = false; }
+            other => { self.state_manager.process_transition(other)?; }
+        }
+        Ok(())
+    }
+}
+
+
