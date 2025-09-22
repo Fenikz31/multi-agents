@@ -8,7 +8,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 
 use super::super::components::{TaskCard, Task, TaskStatus, TaskPriority, render_task_card};
-use super::super::themes::{ThemePalette, Typography};
+use super::super::themes::{ThemePalette, Typography, ThemeKind, default_typography};
 
 /// Kanban column data structure
 #[derive(Debug, Clone)]
@@ -149,7 +149,20 @@ impl KanbanView {
 
     pub fn move_to_column(&mut self, from_column: usize, from_task: usize, to_column: usize, to_task: Option<usize>) -> bool {
         if from_column < self.columns.len() && to_column < self.columns.len() {
-            self.columns[from_column].move_task_to(from_task, &mut self.columns[to_column], to_task)
+            if from_column == to_column {
+                return false; // Can't move to same column
+            }
+            
+            let (left, right) = self.columns.split_at_mut(from_column.max(to_column));
+            let (from_col, to_col) = if from_column < to_column {
+                let (to_left, to_right) = right.split_at_mut(to_column - from_column);
+                (&mut to_left[0], &mut to_right[0])
+            } else {
+                let (to_left, to_right) = left.split_at_mut(to_column + 1);
+                (&mut to_right[0], &mut to_left[to_column])
+            };
+            
+            from_col.move_task_to(from_task, to_col, to_task)
         } else {
             false
         }
@@ -245,7 +258,7 @@ pub fn render_kanban_view(
         if kanban_view.filter.is_empty() { "None" } else { &kanban_view.filter }
     );
     let header = Paragraph::new(header_text)
-        .style(typography.subtitle.style(theme.primary))
+        .style(typography.subtitle)
         .block(Block::default().borders(Borders::ALL).border_style(theme.primary));
     f.render_widget(header, chunks[0]);
 
@@ -270,7 +283,7 @@ pub fn render_kanban_view(
         kanban_view.show_completed
     );
     let footer = Paragraph::new(footer_text)
-        .style(typography.small.style(theme.secondary))
+        .style(typography.caption)
         .block(Block::default().borders(Borders::NONE));
     f.render_widget(footer, chunks[2]);
 }
@@ -296,9 +309,9 @@ fn render_kanban_column(
     // Column header
     let header_text = format!("{} {} ({})", column.status.icon(), column.title, column.tasks.len());
     let header_style = if is_selected {
-        typography.subtitle.style(theme.primary).add_modifier(Modifier::BOLD)
+        typography.subtitle.add_modifier(Modifier::BOLD)
     } else {
-        typography.subtitle.style(theme.text)
+        typography.subtitle
     };
     let header = Paragraph::new(header_text)
         .style(header_style)
@@ -312,7 +325,7 @@ fn render_kanban_column(
         .enumerate()
         .map(|(i, task)| {
             let is_selected = column.selected_task == Some(i);
-            let task_card = TaskCard::new(task.clone())
+            let task_card = TaskCard::new((*task).clone())
                 .with_selection(is_selected)
                 .with_focus(is_selected);
             
@@ -325,9 +338,9 @@ fn render_kanban_column(
             );
             
             let style = if is_selected {
-                typography.body.style(theme.primary).add_modifier(Modifier::REVERSED)
+                typography.body.add_modifier(Modifier::REVERSED)
             } else {
-                typography.body.style(theme.text)
+                typography.body
             };
             
             ListItem::new(text).style(style)
@@ -336,7 +349,7 @@ fn render_kanban_column(
 
     let list = List::new(task_items)
         .block(Block::default().borders(Borders::ALL).border_style(theme.secondary))
-        .highlight_style(typography.body.style(theme.primary).add_modifier(Modifier::REVERSED));
+        .highlight_style(typography.body.add_modifier(Modifier::REVERSED));
     
     let mut list_state = ListState::default();
     list_state.select(column.selected_task);

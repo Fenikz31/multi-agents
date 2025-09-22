@@ -9,7 +9,7 @@ use ratatui::style::{Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 
-use super::super::themes::{ThemePalette, Typography};
+use super::super::themes::{ThemePalette, Typography, ThemeKind, default_typography};
 
 /// Task status enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,13 +140,13 @@ pub fn render_task_card(
 
     // Determine card style based on state
     let card_style = if task_card.selected {
-        typography.body.style(theme.primary).add_modifier(Modifier::REVERSED)
+        typography.body.add_modifier(Modifier::REVERSED)
     } else if task_card.focused {
-        typography.body.style(theme.primary).add_modifier(Modifier::BOLD)
+        typography.body.add_modifier(Modifier::BOLD)
     } else if task_card.hovered {
-        typography.body.style(theme.secondary)
+        typography.body
     } else {
-        typography.body.style(theme.text)
+        typography.body
     };
 
     // Header: Title and Priority
@@ -164,7 +164,7 @@ pub fn render_task_card(
     // Description (if available)
     if let Some(description) = &task_card.task.description {
         let desc = Paragraph::new(description.as_str())
-            .style(typography.caption.style(theme.text))
+            .style(typography.caption)
             .block(Block::default().borders(Borders::NONE));
         f.render_widget(desc, chunks[1]);
     }
@@ -176,7 +176,7 @@ pub fn render_task_card(
         task_card.task.updated_at
     );
     let footer = Paragraph::new(footer_text)
-        .style(typography.small.style(theme.secondary))
+        .style(typography.caption)
         .block(Block::default().borders(Borders::NONE));
     f.render_widget(footer, chunks[2]);
 }
@@ -198,11 +198,11 @@ pub fn render_task_card_compact(
     );
 
     let style = if task_card.selected {
-        typography.body.style(theme.primary).add_modifier(Modifier::REVERSED)
+        typography.body.add_modifier(Modifier::REVERSED)
     } else if task_card.focused {
-        typography.body.style(theme.primary).add_modifier(Modifier::BOLD)
+        typography.body.add_modifier(Modifier::BOLD)
     } else {
-        typography.body.style(theme.text)
+        typography.body
     };
 
     let paragraph = Paragraph::new(text)

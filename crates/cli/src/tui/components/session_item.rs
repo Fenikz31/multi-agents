@@ -5,11 +5,11 @@
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Modifier, Style, Stylize};
+use ratatui::style::{Modifier, Style, Stylize, Styled};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 
-use super::super::themes::{ThemePalette, Typography};
+use super::super::themes::{ThemePalette, Typography, ThemeKind, default_typography};
 
 /// Session status enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -166,7 +166,7 @@ pub fn render_session_item(
 
     // Status icon
     let status_text = session_item.session.status.icon();
-    let status_style = typography.body.style(session_item.session.status.color(theme));
+    let status_style = typography.body.fg(session_item.session.status.color(theme));
     let status = Paragraph::new(status_text)
         .style(status_style)
         .block(Block::default().borders(Borders::NONE));
@@ -179,13 +179,13 @@ pub fn render_session_item(
         session_item.session.agent_name
     );
     let main_style = if session_item.selected {
-        typography.body.style(theme.primary).add_modifier(Modifier::REVERSED)
+        typography.body.add_modifier(Modifier::REVERSED)
     } else if session_item.focused {
-        typography.body.style(theme.primary).add_modifier(Modifier::BOLD)
+        typography.body.add_modifier(Modifier::BOLD)
     } else if session_item.hovered {
-        typography.body.style(theme.secondary)
+        typography.body
     } else {
-        typography.body.style(theme.text)
+        typography.body
     };
     let main = Paragraph::new(main_text)
         .style(main_style)
@@ -198,7 +198,7 @@ pub fn render_session_item(
         session_item.session.provider.icon(),
         session_item.session.provider.label()
     );
-    let provider_style = typography.caption.style(session_item.session.provider.color(theme));
+    let provider_style = typography.caption;
     let provider = Paragraph::new(provider_text)
         .style(provider_style)
         .block(Block::default().borders(Borders::NONE));
@@ -206,7 +206,7 @@ pub fn render_session_item(
 
     // Duration
     let duration_text = session_item.session.duration.as_deref().unwrap_or("N/A");
-    let duration_style = typography.small.style(theme.secondary);
+    let duration_style = typography.caption;
     let duration = Paragraph::new(duration_text)
         .style(duration_style)
         .block(Block::default().borders(Borders::NONE));
@@ -220,7 +220,7 @@ pub fn render_session_item(
         SessionStatus::Starting => "[Starting...]",
         SessionStatus::Stopping => "[Stopping...]",
     };
-    let actions_style = typography.small.style(theme.primary);
+    let actions_style = typography.caption;
     let actions = Paragraph::new(actions_text)
         .style(actions_style)
         .block(Block::default().borders(Borders::NONE));
@@ -245,11 +245,11 @@ pub fn render_session_item_compact(
     );
 
     let style = if session_item.selected {
-        typography.body.style(theme.primary).add_modifier(Modifier::REVERSED)
+        typography.body.add_modifier(Modifier::REVERSED)
     } else if session_item.focused {
-        typography.body.style(theme.primary).add_modifier(Modifier::BOLD)
+        typography.body.add_modifier(Modifier::BOLD)
     } else {
-        typography.body.style(theme.text)
+        typography.body
     };
 
     let paragraph = Paragraph::new(text)
@@ -267,7 +267,7 @@ pub fn render_session_status_badge(
     typography: &Typography,
 ) {
     let text = format!("{} {}", status.icon(), status.label());
-    let style = typography.caption.style(status.color(theme));
+    let style = typography.caption.fg(status.color(theme));
     let badge = Paragraph::new(text)
         .style(style)
         .block(Block::default().borders(Borders::ALL).border_style(status.color(theme)));

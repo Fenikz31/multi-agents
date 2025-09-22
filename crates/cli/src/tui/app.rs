@@ -74,8 +74,9 @@ impl TuiRuntime {
                         .constraints([Constraint::Percentage(100)].as_ref())
                         .split(size);
 
+                    let theme = crate::tui::themes::Theme::new(crate::tui::themes::ThemeKind::Dark);
                     let block = Block::default().title(Line::from(vec![Span::raw("Multi-Agents TUI")])).borders(Borders::ALL);
-                    let para = Paragraph::new(output).block(block).style(Style::default());
+                    let para = Paragraph::new(output).block(block).style(theme.type_scale.body);
                     f.render_widget(para, chunks[0]);
                 })?;
 
