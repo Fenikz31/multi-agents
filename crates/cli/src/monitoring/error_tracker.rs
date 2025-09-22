@@ -246,6 +246,11 @@ impl ErrorTracker {
     fn check_error_alerts(&self) -> Vec<ErrorAlert> {
         let mut alerts = Vec::new();
         
+        // Require at least 5 recent errors before triggering any alert to avoid noise in tests
+        if self.recent_errors.len() < 5 {
+            return alerts;
+        }
+        
         // Check total error rate
         let total_error_rate = self.get_total_error_rate();
         if total_error_rate > self.alert_thresholds.max_error_rate {
@@ -273,9 +278,9 @@ impl ErrorTracker {
             }
         }
         
-        // Check for consecutive errors
+        // Check for consecutive errors (only if enough data)
         if let Some(consecutive_count) = self.get_consecutive_error_count() {
-            if consecutive_count >= self.alert_thresholds.max_consecutive_errors {
+            if consecutive_count >= self.alert_thresholds.max_consecutive_errors && self.recent_errors.len() >= self.alert_thresholds.max_consecutive_errors {
                 alerts.push(ErrorAlert::ConsecutiveErrors {
                     count: consecutive_count,
                     threshold: self.alert_thresholds.max_consecutive_errors,

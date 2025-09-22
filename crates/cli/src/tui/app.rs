@@ -14,7 +14,7 @@ use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScree
 use crossterm::{execute};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout};
-use ratatui::style::{Style};
+// use ratatui::style::{Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Terminal;
@@ -68,7 +68,7 @@ impl TuiRuntime {
                 // Render current state as text for now
                 let output = self.state_manager.render()?;
                 terminal.draw(|f| {
-                    let size = f.size();
+                    let size = f.area();
                     let chunks = Layout::default()
                         .direction(Direction::Vertical)
                         .constraints([Constraint::Percentage(100)].as_ref())

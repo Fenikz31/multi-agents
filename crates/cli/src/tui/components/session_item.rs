@@ -32,23 +32,13 @@ impl SessionStatus {
         }
     }
 
-    pub fn color(&self, theme: &ThemePalette) -> ratatui::style::Color {
+    pub fn color(&self, theme: &ThemePalette) -> Style {
         match self {
-            SessionStatus::Active => theme.success,
-            SessionStatus::Inactive => theme.secondary,
-            SessionStatus::Error => theme.error,
-            SessionStatus::Starting => theme.warning,
-            SessionStatus::Stopping => theme.warning,
-        }
-    }
-
-    pub fn label(&self) -> &'static str {
-        match self {
-            SessionStatus::Active => "Active",
-            SessionStatus::Inactive => "Inactive",
-            SessionStatus::Error => "Error",
-            SessionStatus::Starting => "Starting",
-            SessionStatus::Stopping => "Stopping",
+            SessionStatus::Active => Style::default().fg(theme.success),
+            SessionStatus::Inactive => Style::default().fg(theme.secondary),
+            SessionStatus::Error => Style::default().fg(theme.error),
+            SessionStatus::Starting => Style::default().fg(theme.warning),
+            SessionStatus::Stopping => Style::default().fg(theme.warning),
         }
     }
 }
@@ -70,11 +60,11 @@ impl Provider {
         }
     }
 
-    pub fn color(&self, theme: &ThemePalette) -> ratatui::style::Color {
+    pub fn color(&self, theme: &ThemePalette) -> Style {
         match self {
-            Provider::Gemini => theme.primary,
-            Provider::Claude => theme.secondary,
-            Provider::Cursor => theme.warning,
+            Provider::Gemini => Style::default().fg(theme.primary),
+            Provider::Claude => Style::default().fg(theme.secondary),
+            Provider::Cursor => Style::default().fg(theme.warning),
         }
     }
 
@@ -103,7 +93,7 @@ pub struct Session {
     pub duration: Option<String>,
 }
 
-/// Session item component state
+/// Session item component
 #[derive(Debug, Clone)]
 pub struct SessionItem {
     pub session: Session,
@@ -138,118 +128,81 @@ impl SessionItem {
     }
 }
 
-impl Widget for SessionItem {
-    fn render(self, area: Rect, buf: &mut Buffer) {
-        // This is a placeholder implementation
-        // The actual rendering will be handled by the render_session_item function
-    }
-}
+/// Renders a detailed session item.
+pub fn render_session_item(f: &mut ratatui::Frame, area: Rect, session_item: &SessionItem, theme: &ThemePalette, typography: &Typography) {
+    let border_style = if session_item.selected { theme.primary } else { theme.secondary };
+    let bg_color = if session_item.hovered { theme.surface } else { theme.background };
 
-/// Render a session item with proper styling
-pub fn render_session_item(
-    f: &mut ratatui::Frame,
-    area: Rect,
-    session_item: &SessionItem,
-    theme: &ThemePalette,
-    typography: &Typography,
-) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(border_style)
+        .title(Line::from(vec![
+            Span::styled(session_item.session.status.icon(), session_item.session.status.color(theme)),
+            Span::raw(" "),
+            Span::styled(&session_item.session.agent_name, typography.body.fg(theme.text)),
+        ]))
+        .style(Style::default().bg(bg_color));
+
+    let inner_area = block.inner(area);
+    f.render_widget(block, area);
+
     let chunks = Layout::default()
-        .direction(Direction::Horizontal)
+        .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),  // Status icon
-            Constraint::Min(20),    // Main content
-            Constraint::Length(8),  // Provider
-            Constraint::Length(10), // Duration
-            Constraint::Length(20), // Actions
+            Constraint::Length(1), // Provider & Model
+            Constraint::Length(1), // Role & Duration
+            Constraint::Min(0),    // Last Activity
         ])
-        .split(area);
+        .split(inner_area);
 
     // Status icon
     let status_text = session_item.session.status.icon();
-    let status_style = typography.body.style(session_item.session.status.color(theme));
+    let status_style = typography.body.fg(session_item.session.status.color(theme).fg.unwrap_or(theme.text));
     let status = Paragraph::new(status_text)
         .style(status_style)
         .block(Block::default().borders(Borders::NONE));
     f.render_widget(status, chunks[0]);
 
-    // Main content: Agent name and role
-    let main_text = format!(
-        "{}:{}",
-        session_item.session.role,
-        session_item.session.agent_name
-    );
-    let main_style = if session_item.selected {
-        typography.body.style(theme.primary).add_modifier(Modifier::REVERSED)
-    } else if session_item.focused {
-        typography.body.style(theme.primary).add_modifier(Modifier::BOLD)
-    } else if session_item.hovered {
-        typography.body.style(theme.secondary)
-    } else {
-        typography.body.style(theme.text)
-    };
-    let main = Paragraph::new(main_text)
-        .style(main_style)
-        .block(Block::default().borders(Borders::NONE));
-    f.render_widget(main, chunks[1]);
+    // Provider & Model
+    let provider_model_text = format!("{} {}", session_item.session.provider.icon(), session_item.session.model);
+    let provider_model_paragraph = Paragraph::new(provider_model_text)
+        .style(typography.caption.fg(theme.secondary));
+    f.render_widget(provider_model_paragraph, chunks[0]);
 
-    // Provider
-    let provider_text = format!(
-        "{} {}",
-        session_item.session.provider.icon(),
-        session_item.session.provider.label()
-    );
-    let provider_style = typography.caption.style(session_item.session.provider.color(theme));
-    let provider = Paragraph::new(provider_text)
-        .style(provider_style)
-        .block(Block::default().borders(Borders::NONE));
-    f.render_widget(provider, chunks[2]);
-
-    // Duration
+    // Role & Duration
     let duration_text = session_item.session.duration.as_deref().unwrap_or("N/A");
-    let duration_style = typography.small.style(theme.secondary);
-    let duration = Paragraph::new(duration_text)
-        .style(duration_style)
-        .block(Block::default().borders(Borders::NONE));
-    f.render_widget(duration, chunks[3]);
+    let role_duration_text = format!("Role: {} | Duration: {}", session_item.session.role, duration_text);
+    let role_duration_paragraph = Paragraph::new(role_duration_text)
+        .style(typography.caption.fg(theme.secondary));
+    f.render_widget(role_duration_paragraph, chunks[1]);
 
-    // Actions
-    let actions_text = match session_item.session.status {
-        SessionStatus::Active => "[Attach] [Stop]",
-        SessionStatus::Inactive => "[Start] [Delete]",
-        SessionStatus::Error => "[Restart] [Delete]",
-        SessionStatus::Starting => "[Starting...]",
-        SessionStatus::Stopping => "[Stopping...]",
-    };
-    let actions_style = typography.small.style(theme.primary);
-    let actions = Paragraph::new(actions_text)
-        .style(actions_style)
-        .block(Block::default().borders(Borders::NONE));
-    f.render_widget(actions, chunks[4]);
+    // Last Activity
+    if let Some(last_activity) = &session_item.session.last_activity {
+        let last_activity_text = format!("Last Activity: {}", last_activity);
+        let last_activity_paragraph = Paragraph::new(last_activity_text)
+            .style(typography.caption.fg(theme.text));
+        f.render_widget(last_activity_paragraph, chunks[2]);
+    }
 }
 
-/// Render a session item in compact mode (single line)
-pub fn render_session_item_compact(
-    f: &mut ratatui::Frame,
-    area: Rect,
-    session_item: &SessionItem,
-    theme: &ThemePalette,
-    typography: &Typography,
-) {
+/// Renders a compact session item.
+pub fn render_session_item_compact(f: &mut ratatui::Frame, area: Rect, session_item: &SessionItem, theme: &ThemePalette, typography: &Typography) {
     let text = format!(
-        "{} {}:{} {} {}",
+        "{} {} {}:{} {} - {}",
         session_item.session.status.icon(),
+        session_item.session.provider.icon(),
         session_item.session.role,
         session_item.session.agent_name,
-        session_item.session.provider.icon(),
+        session_item.session.model,
         session_item.session.duration.as_deref().unwrap_or("N/A")
     );
 
     let style = if session_item.selected {
-        typography.body.style(theme.primary).add_modifier(Modifier::REVERSED)
+        typography.body.fg(theme.primary).add_modifier(Modifier::REVERSED)
     } else if session_item.focused {
-        typography.body.style(theme.primary).add_modifier(Modifier::BOLD)
+        typography.body.fg(theme.primary).add_modifier(Modifier::BOLD)
     } else {
-        typography.body.style(theme.text)
+        typography.body.fg(theme.text)
     };
 
     let paragraph = Paragraph::new(text)
@@ -258,7 +211,7 @@ pub fn render_session_item_compact(
     f.render_widget(paragraph, area);
 }
 
-/// Render session status badge
+/// Renders a session status badge.
 pub fn render_session_status_badge(
     f: &mut ratatui::Frame,
     area: Rect,
@@ -267,11 +220,23 @@ pub fn render_session_status_badge(
     typography: &Typography,
 ) {
     let text = format!("{} {}", status.icon(), status.label());
-    let style = typography.caption.style(status.color(theme));
+    let style = typography.caption.fg(status.color(theme).fg.unwrap_or(theme.text));
     let badge = Paragraph::new(text)
         .style(style)
         .block(Block::default().borders(Borders::ALL).border_style(status.color(theme)));
     f.render_widget(badge, area);
+}
+
+impl SessionStatus {
+    pub fn label(&self) -> &'static str {
+        match self {
+            SessionStatus::Active => "Active",
+            SessionStatus::Inactive => "Inactive",
+            SessionStatus::Error => "Error",
+            SessionStatus::Starting => "Starting",
+            SessionStatus::Stopping => "Stopping",
+        }
+    }
 }
 
 #[cfg(test)]

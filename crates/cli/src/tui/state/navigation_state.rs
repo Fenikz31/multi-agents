@@ -58,7 +58,7 @@ impl TuiState for HelpState {
     fn handle_input(&mut self, input: &str) -> Result<StateTransition, Box<dyn Error>> {
         match input.trim() {
             "q" | "quit" | "exit" => Ok(StateTransition::Exit),
-            "b" | "back" => Ok(StateTransition::Transition("app".to_string())),
+            "b" | "back" => Ok(StateTransition::Transition("project_select".to_string())),
             "up" | "↑" => {
                 if self.current_section > 0 {
                     self.current_section -= 1;
@@ -118,7 +118,7 @@ impl TuiState for HelpState {
     }
     
     fn can_transition_to(&self, target_state: &str) -> bool {
-        matches!(target_state, "app")
+        matches!(target_state, "kanban" | "sessions" | "project_select")
     }
 }
 
@@ -179,7 +179,10 @@ impl TuiState for ProjectSelectState {
     fn handle_input(&mut self, input: &str) -> Result<StateTransition, Box<dyn Error>> {
         match input.trim() {
             "q" | "quit" | "exit" => Ok(StateTransition::Exit),
-            "b" | "back" => Ok(StateTransition::Transition("app".to_string())),
+            "b" | "back" => Ok(StateTransition::Transition("project_select".to_string())),
+            "h" | "help" => Ok(StateTransition::Transition("help".to_string())),
+            "k" => Ok(StateTransition::Transition("kanban".to_string())),
+            "s" => Ok(StateTransition::Transition("sessions".to_string())),
             "up" | "↑" => {
                 if let Some(selected) = self.selected_project {
                     if selected > 0 {
@@ -202,19 +205,16 @@ impl TuiState for ProjectSelectState {
                 Ok(StateTransition::Stay)
             }
             "enter" | "return" => {
-                if let Some(project) = self.get_selected_project() {
-                    // TODO: Set selected project in app state
-                    Ok(StateTransition::Transition("app".to_string()))
+                if let Some(_project) = self.get_selected_project() {
+                    Ok(StateTransition::Transition("kanban".to_string()))
                 } else {
                     Ok(StateTransition::Error("No project selected".to_string()))
                 }
             }
             "n" | "new" => {
-                // Create new project
                 Ok(StateTransition::Error("Create project not implemented yet".to_string()))
             }
             _ => {
-                // Filter projects
                 self.filter = input.to_string();
                 self.selected_project = None;
                 Ok(StateTransition::Stay)
@@ -224,7 +224,7 @@ impl TuiState for ProjectSelectState {
     
     fn render(&self) -> Result<String, Box<dyn Error>> {
         let mut output = String::new();
-        output.push_str("=== Select Project ===\n\n");
+        output.push_str("=== Project Selection ===\n\n");
         
         let filtered = self.get_filtered_projects();
         
@@ -239,7 +239,7 @@ impl TuiState for ProjectSelectState {
             }
         }
         
-        output.push_str("\nCommands: ↑ ↓ (navigate), enter (select), n (new), b (back), q (quit)\n");
+        output.push_str("\nCommands: ↑ ↓ (navigate), enter (select), n (new), h (help), k (kanban), s (sessions), q (quit)\n");
         if !self.filter.is_empty() {
             output.push_str(&format!("Filter: {}\n", self.filter));
         }
@@ -252,7 +252,7 @@ impl TuiState for ProjectSelectState {
     }
     
     fn can_transition_to(&self, target_state: &str) -> bool {
-        matches!(target_state, "app")
+        matches!(target_state, "kanban" | "help" | "sessions")
     }
 }
 

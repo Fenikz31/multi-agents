@@ -28,17 +28,17 @@ impl TaskStatus {
         }
     }
 
-    pub fn color(&self, theme: &ThemePalette) -> ratatui::style::Color {
+    pub fn color(&self, theme: &ThemePalette) -> Style {
         match self {
-            TaskStatus::Todo => theme.text,
-            TaskStatus::Doing => theme.warning,
-            TaskStatus::Done => theme.success,
+            TaskStatus::Todo => Style::default().fg(theme.text),
+            TaskStatus::Doing => Style::default().fg(theme.warning),
+            TaskStatus::Done => Style::default().fg(theme.success),
         }
     }
 }
 
 /// Task priority enumeration
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TaskPriority {
     Low,
     Medium,
@@ -56,12 +56,12 @@ impl TaskPriority {
         }
     }
 
-    pub fn color(&self, theme: &ThemePalette) -> ratatui::style::Color {
+    pub fn color(&self, theme: &ThemePalette) -> Style {
         match self {
-            TaskPriority::Low => theme.success,
-            TaskPriority::Medium => theme.warning,
-            TaskPriority::High => theme.error,
-            TaskPriority::Critical => theme.error,
+            TaskPriority::Low => Style::default().fg(theme.success),
+            TaskPriority::Medium => Style::default().fg(theme.warning),
+            TaskPriority::High => Style::default().fg(theme.error),
+            TaskPriority::Critical => Style::default().fg(theme.error),
         }
     }
 }
@@ -79,7 +79,7 @@ pub struct Task {
     pub updated_at: String,
 }
 
-/// Task card component state
+/// Task card component
 #[derive(Debug, Clone)]
 pub struct TaskCard {
     pub task: Task,
@@ -114,59 +114,64 @@ impl TaskCard {
     }
 }
 
-impl Widget for TaskCard {
-    fn render(self, area: Rect, buf: &mut Buffer) {
-        // This is a placeholder implementation
-        // The actual rendering will be handled by the render_task_card function
-    }
-}
+/// Renders a detailed task card.
+pub fn render_task_card(f: &mut ratatui::Frame, area: Rect, task_card: &TaskCard, theme: &ThemePalette, typography: &Typography) {
+    let border_style = if task_card.selected { theme.primary } else { theme.secondary };
+    let bg_color = if task_card.hovered { theme.surface } else { theme.background };
 
-/// Render a task card with proper styling
-pub fn render_task_card(
-    f: &mut ratatui::Frame,
-    area: Rect,
-    task_card: &TaskCard,
-    theme: &ThemePalette,
-    typography: &Typography,
-) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(border_style)
+        .title(Line::from(vec![
+            Span::styled(task_card.task.status.icon(), task_card.task.status.color(theme)),
+            Span::raw(" "),
+            Span::styled(&task_card.task.title, typography.body.fg(theme.text)),
+        ]))
+        .style(Style::default().bg(bg_color));
+
+    let inner_area = block.inner(area);
+    f.render_widget(block, area);
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // Header with title and priority
-            Constraint::Min(1),    // Description (if available)
-            Constraint::Length(1), // Footer with assignee and date
+            Constraint::Length(1), // Priority
+            Constraint::Length(1), // Assignee
+            Constraint::Min(0),    // Description
         ])
-        .split(area);
+        .split(inner_area);
 
     // Determine card style based on state
     let card_style = if task_card.selected {
-        typography.body.style(theme.primary).add_modifier(Modifier::REVERSED)
+        typography.body.fg(theme.primary).add_modifier(Modifier::REVERSED)
     } else if task_card.focused {
-        typography.body.style(theme.primary).add_modifier(Modifier::BOLD)
+        typography.body.fg(theme.primary).add_modifier(Modifier::BOLD)
     } else if task_card.hovered {
-        typography.body.style(theme.secondary)
+        typography.body.fg(theme.secondary)
     } else {
-        typography.body.style(theme.text)
+        typography.body.fg(theme.text)
     };
 
-    // Header: Title and Priority
-    let header_text = format!(
-        "{} {} {}",
-        task_card.task.status.icon(),
-        task_card.task.priority.icon(),
-        task_card.task.title
-    );
-    let header = Paragraph::new(header_text)
-        .style(card_style)
-        .block(Block::default().borders(Borders::ALL).border_style(theme.secondary));
-    f.render_widget(header, chunks[0]);
+    // Priority
+    let priority_text = format!("Priority: {} {:?}", task_card.task.priority.icon(), task_card.task.priority);
+    let priority_paragraph = Paragraph::new(priority_text)
+        .style(typography.caption.fg(theme.secondary));
+    f.render_widget(priority_paragraph, chunks[0]);
 
-    // Description (if available)
+    // Assignee
+    if let Some(assignee) = &task_card.task.assignee {
+        let assignee_text = format!("Assignee: {}", assignee);
+        let assignee_paragraph = Paragraph::new(assignee_text)
+            .style(typography.caption.fg(theme.secondary));
+        f.render_widget(assignee_paragraph, chunks[1]);
+    }
+
+    // Description
     if let Some(description) = &task_card.task.description {
         let desc = Paragraph::new(description.as_str())
-            .style(typography.caption.style(theme.text))
+            .style(typography.caption.fg(theme.text))
             .block(Block::default().borders(Borders::NONE));
-        f.render_widget(desc, chunks[1]);
+        f.render_widget(desc, chunks[2]);
     }
 
     // Footer: Assignee and Date
@@ -176,7 +181,7 @@ pub fn render_task_card(
         task_card.task.updated_at
     );
     let footer = Paragraph::new(footer_text)
-        .style(typography.small.style(theme.secondary))
+        .style(typography.caption.fg(theme.secondary))
         .block(Block::default().borders(Borders::NONE));
     f.render_widget(footer, chunks[2]);
 }
@@ -198,11 +203,11 @@ pub fn render_task_card_compact(
     );
 
     let style = if task_card.selected {
-        typography.body.style(theme.primary).add_modifier(Modifier::REVERSED)
+        typography.body.fg(theme.primary).add_modifier(Modifier::REVERSED)
     } else if task_card.focused {
-        typography.body.style(theme.primary).add_modifier(Modifier::BOLD)
+        typography.body.fg(theme.primary).add_modifier(Modifier::BOLD)
     } else {
-        typography.body.style(theme.text)
+        typography.body.fg(theme.text)
     };
 
     let paragraph = Paragraph::new(text)

@@ -474,23 +474,26 @@ impl ResourceMonitor {
         let mut alerts = Vec::new();
         let now = chrono::Utc::now().to_rfc3339();
         
+        let warn_mult = if self.resource_limits.warning_threshold > 0.0 { self.resource_limits.warning_threshold } else { 0.8 };
+        
         // Memory alerts
-        if self.resource_metrics.memory.usage_percentage > self.resource_limits.max_memory_mb {
+        let used_mb = self.resource_metrics.memory.used_mb;
+        if used_mb > self.resource_limits.max_memory_mb {
             alerts.push(ResourceAlert {
                 resource_type: "Memory".to_string(),
                 severity: AlertSeverity::Critical,
                 message: "Memory usage exceeds critical threshold".to_string(),
-                current_value: self.resource_metrics.memory.usage_percentage,
+                current_value: used_mb,
                 threshold: self.resource_limits.max_memory_mb,
                 timestamp: now.clone(),
             });
-        } else if self.resource_metrics.memory.usage_percentage > self.resource_limits.max_memory_mb * self.resource_limits.warning_threshold {
+        } else if used_mb > self.resource_limits.max_memory_mb * warn_mult {
             alerts.push(ResourceAlert {
                 resource_type: "Memory".to_string(),
                 severity: AlertSeverity::Warning,
                 message: "Memory usage approaching threshold".to_string(),
-                current_value: self.resource_metrics.memory.usage_percentage,
-                threshold: self.resource_limits.max_memory_mb * self.resource_limits.warning_threshold,
+                current_value: used_mb,
+                threshold: self.resource_limits.max_memory_mb * warn_mult,
                 timestamp: now.clone(),
             });
         }
