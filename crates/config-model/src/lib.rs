@@ -5,12 +5,15 @@ use std::collections::{BTreeMap, HashSet};
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ProjectConfig {
+    #[serde(default = "default_schema_version")]
     pub schema_version: u32,
     pub project: String,
     pub agents: Vec<AgentConfig>,
     #[serde(default)]
     pub groups: Vec<GroupConfig>,
 }
+
+fn default_schema_version() -> u32 { 1 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -33,6 +36,7 @@ pub struct GroupConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ProvidersConfig {
+    #[serde(default = "default_schema_version")]
     pub schema_version: u32,
     pub providers: BTreeMap<String, ProviderTemplate>,
 }

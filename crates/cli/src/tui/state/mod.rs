@@ -105,7 +105,7 @@ impl StateManager {
                 }
             }
             StateTransition::Exit => {
-                self.current_state = "exiting".to_string();
+                self.current_state = "initial".to_string();
                 Ok(())
             }
             StateTransition::Error(msg) => {

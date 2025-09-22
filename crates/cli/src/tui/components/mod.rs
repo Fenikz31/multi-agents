@@ -1,41 +1,74 @@
-//! TUI reusable components (widgets)
+//! TUI Components module
 
-use ratatui::layout::{Constraint, Rect};
-use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, Paragraph, Row, Table};
-use ratatui::{Frame};
+pub mod task_card;
+pub mod session_item;
+pub mod log_viewer;
 
-use crate::tui::themes::Theme;
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::style::{Modifier, Style, Stylize};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, Paragraph, Widget, List, ListItem, ListState, Table, Row, Cell};
 
-pub fn button(f: &mut Frame, area: Rect, label: &str, theme: &Theme, primary: bool, focused: bool) {
-    let style = if primary { theme.button_primary() } else { theme.button_surface() };
-    let label = if focused { format!("> {} <", label) } else { label.to_string() };
-    let w = Paragraph::new(label).block(Block::default().borders(Borders::ALL).border_style(style)).style(style);
-    f.render_widget(w, area);
+use super::themes::{ThemePalette, Typography};
+
+// Re-export components for convenience
+pub use task_card::{TaskCard, Task, TaskStatus, TaskPriority, render_task_card, render_task_card_compact};
+pub use session_item::{SessionItem, Session, SessionStatus, Provider, render_session_item, render_session_item_compact, render_session_status_badge};
+pub use log_viewer::{LogViewer, LogEntry, LogLevel, LogFilter, render_log_viewer, render_log_entry};
+
+/// Renders a styled button.
+pub fn render_button(f: &mut ratatui::Frame, area: Rect, text: &str, is_selected: bool, theme: &ThemePalette, typography: &Typography) {
+    let style = if is_selected {
+        typography.body.fg(theme.primary).add_modifier(Modifier::REVERSED)
+    } else {
+        typography.body.fg(theme.text).bg(theme.surface)
+    };
+    let button = Paragraph::new(text).style(style).block(Block::default().borders(Borders::ALL).border_style(theme.secondary));
+    f.render_widget(button, area);
 }
 
-pub fn list_simple<'a>(f: &mut Frame, area: Rect, title: &str, items: Vec<Span<'a>>) {
-    let block = Block::default().borders(Borders::ALL).title(title);
-    let para = Paragraph::new(Text::from(Line::from(items))).block(block);
-    f.render_widget(para, area);
+/// Renders a simple list.
+pub fn render_simple_list(f: &mut ratatui::Frame, area: Rect, title: &str, items: &[String], selected_index: Option<usize>, theme: &ThemePalette, typography: &Typography) {
+    let block = Block::default().borders(Borders::ALL).title(Line::from(vec![Span::raw(title).style(typography.subtitle.fg(theme.text))])).border_style(theme.secondary);
+    let list_items: Vec<ListItem> = items.iter().enumerate().map(|(i, item)| {
+        let style = if selected_index == Some(i) {
+            typography.body.fg(theme.primary).add_modifier(Modifier::REVERSED)
+        } else {
+            typography.body.fg(theme.text)
+        };
+        ListItem::new(item.clone()).style(style)
+    }).collect();
+    let list = List::new(list_items).block(block).highlight_style(typography.body.fg(theme.primary).add_modifier(Modifier::REVERSED));
+    
+    let mut state = ListState::default();
+    state.select(selected_index);
+    
+    f.render_stateful_widget(list, area, &mut state);
 }
 
-pub fn table_simple<'a>(f: &mut Frame, area: Rect, title: &str, headers: Vec<&'a str>, rows: Vec<Vec<&'a str>>) {
-    let header = Row::new(headers.clone());
-    let rows = rows.into_iter().map(|r| Row::new(r));
-    let cols = headers.len().max(1) as u16;
-    let width = 100 / cols;
-    let widths: Vec<Constraint> = (0..cols).map(|_| Constraint::Percentage(width)).collect();
-    let table = Table::new(rows, widths)
+/// Renders a simple table.
+pub fn render_simple_table(f: &mut ratatui::Frame, area: Rect, title: &str, headers: &[&str], rows: Vec<Vec<String>>, column_widths: &[Constraint], theme: &ThemePalette, typography: &Typography) {
+    let block = Block::default().borders(Borders::ALL).title(Line::from(vec![Span::raw(title).style(typography.subtitle.fg(theme.text))])).border_style(theme.secondary);
+    let header_cells = headers.iter().map(|h| Cell::from(*h).style(typography.caption.fg(theme.primary)));
+    let header = Row::new(header_cells).height(1).bottom_margin(1);
+    
+    let table_rows = rows.iter().map(|item| {
+        let height = item.iter().map(|content| content.chars().filter(|c| *c == '\n').count()).max().unwrap_or(0) + 1;
+        let cells = item.iter().map(|c| Cell::from(c.clone()).style(typography.body.fg(theme.text)));
+        Row::new(cells).height(height as u16).bottom_margin(1)
+    });
+    
+    let table = Table::new(table_rows, column_widths)
         .header(header)
-        .block(Block::default().borders(Borders::ALL).title(title));
+        .block(block)
+        .highlight_style(typography.body.fg(theme.primary).add_modifier(Modifier::REVERSED))
+        .widths(column_widths);
+    
     f.render_widget(table, area);
 }
 
-pub fn badge_success(f: &mut Frame, area: Rect, label: &str, theme: &Theme) {
-    let style = theme.badge_success();
-    let w = Paragraph::new(label).style(style).block(Block::default().borders(Borders::ALL));
-    f.render_widget(w, area);
+/// Renders a styled badge.
+pub fn render_badge(f: &mut ratatui::Frame, area: Rect, text: &str, style: Style) {
+    let badge = Paragraph::new(text).style(style).block(Block::default().borders(Borders::NONE));
+    f.render_widget(badge, area);
 }
-
-
