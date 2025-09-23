@@ -5,6 +5,8 @@
 
 use std::error::Error;
 use super::{TuiState, StateTransition};
+use crate::repository::{RepositoryManager};
+use db::open_or_create_db;
 
 /// Kanban view state
 pub struct KanbanState {
@@ -41,6 +43,21 @@ impl KanbanState {
             selected_task: None,
             filter: String::new(),
         }
+    }
+
+    /// Load tasks from SQLite for a given project id
+    pub fn load_from_db(&mut self, db_path: &str, project_id: &str) -> Result<(), Box<dyn Error>> {
+        let conn = open_or_create_db(db_path)?;
+        let repo = RepositoryManager::new(conn);
+        let rows = repo.tasks.list_by_project(project_id)?;
+        self.tasks = rows.into_iter().map(|r| TaskItem {
+            id: r.id,
+            title: r.title,
+            status: r.status,
+            assignee: None,
+            priority: "medium".to_string(),
+        }).collect();
+        Ok(())
     }
     
     /// Get columns

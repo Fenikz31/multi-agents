@@ -40,7 +40,10 @@ impl TuiRuntime {
         // Add initial states
         self.state_manager.add_state("help".to_string(), Box::new(super::state::navigation_state::HelpState::new()));
         self.state_manager.add_state("project_select".to_string(), Box::new(super::state::navigation_state::ProjectSelectState::new()));
-        self.state_manager.add_state("kanban".to_string(), Box::new(super::state::view_state::KanbanState::new()));
+        let mut kanban = super::state::view_state::KanbanState::new();
+        // Best-effort load from default DB and first project (to be refined later)
+        let _ = kanban.load_from_db("./data/multi-agents.sqlite3", "default-project");
+        self.state_manager.add_state("kanban".to_string(), Box::new(kanban));
         self.state_manager.add_state("sessions".to_string(), Box::new(super::state::view_state::SessionsState::new()));
 
         // Initial state
