@@ -4,7 +4,7 @@
 //! their specific data and interactions.
 
 use std::error::Error;
-use super::{TuiState, StateTransition};
+use super::{TuiState, StateTransition, StateContext};
 use crate::repository::{RepositoryManager};
 use db::open_or_create_db;
 
@@ -123,6 +123,12 @@ impl KanbanState {
 }
 
 impl TuiState for KanbanState {
+    fn on_enter(&mut self, ctx: &StateContext) -> Result<(), Box<dyn Error>> {
+        if let Some(project_id) = &ctx.selected_project_id {
+            let _ = self.load_from_db("./data/multi-agents.sqlite3", project_id);
+        }
+        Ok(())
+    }
     fn handle_input(&mut self, input: &str) -> Result<StateTransition, Box<dyn Error>> {
         match input.trim() {
             "q" | "quit" => Ok(StateTransition::Exit),
@@ -179,8 +185,9 @@ impl TuiState for KanbanState {
             ">" => {
                 // Move selected task one step right in workflow
                 if let Some(sel_idx) = self.selected_task {
-                    let columns = self.get_columns();
-                    if let Some(col) = columns.get(self.selected_column) {
+                    // Resolve current selected task id before mutation
+                    let current_columns = self.get_columns();
+                    if let Some(col) = current_columns.get(self.selected_column) {
                         if let Some(task) = col.tasks.get(sel_idx) {
                             let new_status = match task.status.as_str() {
                                 "todo" => "doing",
@@ -188,6 +195,11 @@ impl TuiState for KanbanState {
                                 other => other,
                             };
                             let _ = self.move_task(&task.id, new_status);
+                            // Move focus to the next column since task moved right
+                            let cols_len = current_columns.len();
+                            if self.selected_column + 1 < cols_len { self.selected_column += 1; }
+                            // Reset selection to first item in the new column
+                            self.selected_task = Some(0);
                         }
                     }
                 }
@@ -196,8 +208,9 @@ impl TuiState for KanbanState {
             "<" => {
                 // Move selected task one step left in workflow
                 if let Some(sel_idx) = self.selected_task {
-                    let columns = self.get_columns();
-                    if let Some(col) = columns.get(self.selected_column) {
+                    // Resolve current selected task id before mutation
+                    let current_columns = self.get_columns();
+                    if let Some(col) = current_columns.get(self.selected_column) {
                         if let Some(task) = col.tasks.get(sel_idx) {
                             let new_status = match task.status.as_str() {
                                 "done" => "doing",
@@ -205,6 +218,10 @@ impl TuiState for KanbanState {
                                 other => other,
                             };
                             let _ = self.move_task(&task.id, new_status);
+                            // Move focus to the previous column since task moved left
+                            if self.selected_column > 0 { self.selected_column -= 1; }
+                            // Reset selection to first item in the new column
+                            self.selected_task = Some(0);
                         }
                     }
                 }
