@@ -306,6 +306,7 @@ pub struct SessionsState {
     pub sessions: Vec<SessionItem>,
     pub selected_session: Option<usize>,
     pub filter: String,
+    pub sort_by_agent: bool,
 }
 
 /// Session item for Sessions view
@@ -326,7 +327,41 @@ impl SessionsState {
             sessions: Vec::new(),
             selected_session: None,
             filter: String::new(),
+            sort_by_agent: false,
         }
+    }
+    /// Load sessions from SQLite
+    pub fn load_from_db_with_filters(&mut self, db_path: &str, project_id: Option<String>, agent_id: Option<String>) -> Result<(), Box<dyn Error>> {
+        let conn = db::open_or_create_db(db_path)?;
+        let mut sql = String::from("SELECT id, agent_id, provider, status, created_at FROM sessions");
+        let mut clauses: Vec<&str> = Vec::new();
+        if project_id.is_some() { clauses.push("project_id = ?1"); }
+        if agent_id.is_some() { clauses.push("agent_id = ?2"); }
+        if !clauses.is_empty() { sql.push_str(" WHERE "); sql.push_str(&clauses.join(" AND ")); }
+        sql.push_str(" ORDER BY created_at DESC");
+
+        let mut stmt = conn.prepare(&sql)?;
+
+        let mut collected: Vec<(String, String, String, String, String)> = Vec::new();
+        if let (Some(p), Some(a)) = (project_id.as_ref(), agent_id.as_ref()) {
+            let mapped = stmt.query_map((p, a), |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?)))?;
+            for r in mapped { collected.push(r?); }
+        } else if let (Some(p), None) = (project_id.as_ref(), agent_id.as_ref()) {
+            let mapped = stmt.query_map([p], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?)))?;
+            for r in mapped { collected.push(r?); }
+        } else if let (None, Some(a)) = (project_id.as_ref(), agent_id.as_ref()) {
+            let mapped = stmt.query_map([a], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?)))?;
+            for r in mapped { collected.push(r?); }
+        } else {
+            let mapped = stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?)))?;
+            for r in mapped { collected.push(r?); }
+        }
+
+        self.sessions.clear();
+        for (id, agent_id, provider, status, created_at) in collected.into_iter() {
+            self.sessions.push(SessionItem { id, agent_name: agent_id, role: String::new(), provider, status, duration: created_at });
+        }
+        Ok(())
     }
     
     /// Add session
@@ -336,14 +371,20 @@ impl SessionsState {
     
     /// Get filtered sessions
     pub fn get_filtered_sessions(&self) -> Vec<&SessionItem> {
-        if self.filter.is_empty() {
+        let mut v: Vec<&SessionItem> = if self.filter.is_empty() {
             self.sessions.iter().collect()
         } else {
             self.sessions.iter()
                 .filter(|s| s.agent_name.to_lowercase().contains(&self.filter.to_lowercase()) ||
                            s.role.to_lowercase().contains(&self.filter.to_lowercase()))
                 .collect()
+        };
+        if self.sort_by_agent {
+            v.sort_by(|a, b| a.agent_name.cmp(&b.agent_name));
+        } else {
+            v.sort_by(|a, b| b.duration.cmp(&a.duration));
         }
+        v
     }
 }
 
@@ -385,6 +426,14 @@ impl TuiState for SessionsState {
                 }
                 Ok(StateTransition::Stay)
             }
+            "t" => {
+                // Toggle sort
+                self.sort_by_agent = !self.sort_by_agent;
+                Ok(StateTransition::Stay)
+            }
+            "r" => Ok(StateTransition::Error("Resume session not implemented yet".to_string())),
+            "X" => Ok(StateTransition::Error("Stop session not implemented yet".to_string())),
+            "S" => Ok(StateTransition::Error("Start session not implemented yet".to_string())),
             "s" | "start" => {
                 // Start new session
                 Ok(StateTransition::Error("Start session not implemented yet".to_string()))
