@@ -306,6 +306,7 @@ pub struct SessionsState {
     pub sessions: Vec<SessionItem>,
     pub selected_session: Option<usize>,
     pub filter: String,
+    pub sort_by_agent: bool,
 }
 
 /// Session item for Sessions view
@@ -326,6 +327,7 @@ impl SessionsState {
             sessions: Vec::new(),
             selected_session: None,
             filter: String::new(),
+            sort_by_agent: false,
         }
     }
     /// Load sessions from SQLite
@@ -369,14 +371,20 @@ impl SessionsState {
     
     /// Get filtered sessions
     pub fn get_filtered_sessions(&self) -> Vec<&SessionItem> {
-        if self.filter.is_empty() {
+        let mut v: Vec<&SessionItem> = if self.filter.is_empty() {
             self.sessions.iter().collect()
         } else {
             self.sessions.iter()
                 .filter(|s| s.agent_name.to_lowercase().contains(&self.filter.to_lowercase()) ||
                            s.role.to_lowercase().contains(&self.filter.to_lowercase()))
                 .collect()
+        };
+        if self.sort_by_agent {
+            v.sort_by(|a, b| a.agent_name.cmp(&b.agent_name));
+        } else {
+            v.sort_by(|a, b| b.duration.cmp(&a.duration));
         }
+        v
     }
 }
 
@@ -418,6 +426,14 @@ impl TuiState for SessionsState {
                 }
                 Ok(StateTransition::Stay)
             }
+            "t" => {
+                // Toggle sort
+                self.sort_by_agent = !self.sort_by_agent;
+                Ok(StateTransition::Stay)
+            }
+            "r" => Ok(StateTransition::Error("Resume session not implemented yet".to_string())),
+            "x" => Ok(StateTransition::Error("Stop session not implemented yet".to_string())),
+            "S" => Ok(StateTransition::Error("Start session not implemented yet".to_string())),
             "s" | "start" => {
                 // Start new session
                 Ok(StateTransition::Error("Start session not implemented yet".to_string()))
