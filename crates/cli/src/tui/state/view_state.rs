@@ -328,6 +328,31 @@ impl SessionsState {
             filter: String::new(),
         }
     }
+    /// Load sessions from SQLite
+    pub fn load_from_db_with_filters(&mut self, db_path: &str, project_id: Option<String>, agent_id: Option<String>) -> Result<(), Box<dyn Error>> {
+        let conn = db::open_or_create_db(db_path)?;
+        let mut sql = String::from("SELECT id, agent_id, provider, status, created_at FROM sessions");
+        let mut clauses: Vec<&str> = Vec::new();
+        if project_id.is_some() { clauses.push("project_id = ?1"); }
+        if agent_id.is_some() { clauses.push("agent_id = ?2"); }
+        if !clauses.is_empty() { sql.push_str(" WHERE "); sql.push_str(&clauses.join(" AND ")); }
+        sql.push_str(" ORDER BY created_at DESC");
+
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = match (project_id.as_ref(), agent_id.as_ref()) {
+            (Some(p), Some(a)) => stmt.query_map((p, a), |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?)))?,
+            (Some(p), None) => stmt.query_map([p], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?)))?,
+            (None, Some(a)) => stmt.query_map([a], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?)))?,
+            (None, None) => stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?)))?,
+        };
+
+        self.sessions.clear();
+        for r in rows {
+            let (id, agent_id, provider, status, created_at) = r?;
+            self.sessions.push(SessionItem { id, agent_name: agent_id.clone(), role: String::new(), provider, status, duration: created_at });
+        }
+        Ok(())
+    }
     
     /// Add session
     pub fn add_session(&mut self, session: SessionItem) {
