@@ -339,17 +339,25 @@ impl SessionsState {
         sql.push_str(" ORDER BY created_at DESC");
 
         let mut stmt = conn.prepare(&sql)?;
-        let rows = match (project_id.as_ref(), agent_id.as_ref()) {
-            (Some(p), Some(a)) => stmt.query_map((p, a), |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?)))?,
-            (Some(p), None) => stmt.query_map([p], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?)))?,
-            (None, Some(a)) => stmt.query_map([a], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?)))?,
-            (None, None) => stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?)))?,
-        };
+
+        let mut collected: Vec<(String, String, String, String, String)> = Vec::new();
+        if let (Some(p), Some(a)) = (project_id.as_ref(), agent_id.as_ref()) {
+            let mapped = stmt.query_map((p, a), |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?)))?;
+            for r in mapped { collected.push(r?); }
+        } else if let (Some(p), None) = (project_id.as_ref(), agent_id.as_ref()) {
+            let mapped = stmt.query_map([p], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?)))?;
+            for r in mapped { collected.push(r?); }
+        } else if let (None, Some(a)) = (project_id.as_ref(), agent_id.as_ref()) {
+            let mapped = stmt.query_map([a], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?)))?;
+            for r in mapped { collected.push(r?); }
+        } else {
+            let mapped = stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?)))?;
+            for r in mapped { collected.push(r?); }
+        }
 
         self.sessions.clear();
-        for r in rows {
-            let (id, agent_id, provider, status, created_at) = r?;
-            self.sessions.push(SessionItem { id, agent_name: agent_id.clone(), role: String::new(), provider, status, duration: created_at });
+        for (id, agent_id, provider, status, created_at) in collected.into_iter() {
+            self.sessions.push(SessionItem { id, agent_name: agent_id, role: String::new(), provider, status, duration: created_at });
         }
         Ok(())
     }
