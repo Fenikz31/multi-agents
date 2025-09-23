@@ -10,15 +10,42 @@ Objectif: Définir le système de navigation et d'interaction de la TUI (vues, r
 - Focus model: header (status), body (content), footer (shortcuts)
 
 ### Raccourcis Clavier (keymap)
-- Global
-  - q: Quitter; h: Aide; /: rechercher; Tab/Shift+Tab: changer de focus
-  - g k/s/d/p: go-to vues; F: follow toggle (logs)
-- Kanban
-  - ← → colonnes; ↑ ↓ tâches; < > déplacer; n: nouvelle tâche; t: tri; /: filtre
-- Sessions
-  - ↑ ↓ navigation; t: tri; r: resume; X: stop; S: start; /: filtre
-- Detail (Logs)
-  - ↑ ↓ scroll; g/G: top/bottom; F: follow; 1/2/3: niveau info/warn/error; e: export
+
+Global
+- q: Quitter
+- h: Aide
+- /: Rechercher
+- Tab / Shift+Tab: Changer de focus (header/body/footer)
+- g k / g s / g d / g p: Aller à Kanban / Sessions / Detail / Project Select
+- F: Toggle follow (logs)
+
+Kanban
+- ← →: Naviguer entre colonnes
+- ↑ ↓: Sélectionner les tâches
+- Tab / Shift+Tab: Changer le focus (colonnes/éléments)
+- <: Déplacer la tâche à gauche
+- >: Déplacer la tâche à droite
+- Space: Passer la tâche au prochain statut
+- n: Nouvelle tâche
+- t: Trier
+- /: Filtrer
+
+Sessions
+- ↑ ↓: Naviguer entre les sessions
+- Enter: Attacher à la session
+- S: Démarrer
+- X: Arrêter
+- r: Reprendre
+- t: Trier
+- /: Filtrer
+
+Detail (Logs)
+- ↑ ↓: Scroll
+- g / G: Haut / Bas
+- F: Follow on/off
+- 1 / 2 / 3: Filtrer niveau info / warn / error
+- /: Rechercher
+- e: Exporter
 
 ### Menu Contextuel (Context Menu)
 - Invocation: m
@@ -62,6 +89,16 @@ Toasts
             [ Export completed: logs-20250923.txt ]
 ```
 
+Footer (cheat-sheet dynamique)
+```
+q quit | h help | / search | g k/s/d/p go-to | Tab focus | m menu | F follow
+```
+
+Header (statut global)
+```
+┌ Multi-Agents TUI — Project:<name>  ● Active  View:<view>  Focus:<Header|Body|Footer> ─┐
+```
+
 ### Critères d’acceptation
 - Navigation fluide (raccourcis go-to, Tab/Shift+Tab)
 - Raccourcis complets documentés et visibles en footer
@@ -69,6 +106,6 @@ Toasts
 - Indicateurs de statut globaux cohérents
 - Notifications/toasts non intrusives, empilables
 
-Dernière mise à jour: 2025-09-23T12:37:58+02:00
+Dernière mise à jour: 2025-09-23T14:12:00+02:00
 
 

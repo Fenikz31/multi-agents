@@ -26,24 +26,24 @@ impl HelpState {
             current_section: 0,
             sections: vec![
                 HelpSection {
-                    title: "General Commands".to_string(),
-                    content: "q, quit, exit - Quit application\nh, help - Show this help\np, project - Select project".to_string(),
+                    title: "General / Global".to_string(),
+                    content: "q: Quit\nh: Help\n/: Search\nTab/Shift+Tab: Switch focus\ng k/s/d/p: Go to Kanban/Sessions/Detail/Project Select\nF: Follow (logs)".to_string(),
                 },
                 HelpSection {
                     title: "Navigation".to_string(),
-                    content: "Arrow keys - Navigate\nTab/Shift+Tab - Switch focus (columns/items)\nEnter - Select/Activate".to_string(),
+                    content: "Arrow keys: Navigate\nEnter: Select/Activate\nBackspace/Esc: Back/Cancel\nHome/End: First/Last\nPgUp/PgDn: Page Up/Down".to_string(),
                 },
                 HelpSection {
                     title: "Kanban View".to_string(),
-                    content: "← → - Navigate columns\n↑ ↓ - Select tasks\nTab/Shift+Tab - Switch focus\n< > - Move task left/right\nSpace - Move task to next status\nn - New task".to_string(),
+                    content: "← →: Columns\n↑ ↓: Tasks\nTab/Shift+Tab: Switch focus (columns/items)\n< >: Move task left/right\nSpace: Move to next status\nn: New task\nt: Sort\n/: Filter".to_string(),
                 },
                 HelpSection {
                     title: "Sessions View".to_string(),
-                    content: "↑ ↓ - Navigate sessions\nEnter - Attach to session\ns - Start new session".to_string(),
+                    content: "↑ ↓: Navigate sessions\nEnter: Attach\nS: Start\nX: Stop\nr: Resume\nt: Sort\n/: Filter".to_string(),
                 },
                 HelpSection {
                     title: "Detail View".to_string(),
-                    content: "↑ ↓ - Scroll logs\nf - Filter logs\nr - Refresh\nCtrl+F - Search".to_string(),
+                    content: "↑ ↓: Scroll\ng/G: Top/Bottom\nF: Follow\n1/2/3: Level info/warn/error\n/: Search\ne: Export".to_string(),
                 },
             ],
         }
