@@ -6,6 +6,7 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 
 use super::super::themes::{ThemePalette, Typography};
+use crate::tui::components::{ToastQueue, render_toasts, GlobalStatus, GlobalStateIcon, render_global_status};
 use crate::tui::state::view_state::SessionsState;
 
 pub fn render_sessions_view(
@@ -24,16 +25,14 @@ pub fn render_sessions_view(
         ])
         .split(area);
 
-    let header_text = format!(
-        "Sessions | Total: {} | Filter: {} | Sort: {}",
-        sessions_state.sessions.len(),
-        if sessions_state.filter.is_empty() { "None" } else { &sessions_state.filter },
-        if sessions_state.sort_by_agent { "agent" } else { "last-activity" }
-    );
-    let header = Paragraph::new(header_text)
-        .style(typography.subtitle.fg(theme.primary))
-        .block(Block::default().borders(Borders::ALL).border_style(theme.primary));
-    f.render_widget(header, chunks[0]);
+    let status = GlobalStatus {
+        project_name: "<project>".to_string(),
+        view_name: "Sessions".to_string(),
+        focus: "Body".to_string(),
+        icon: GlobalStateIcon::Active,
+        last_action: None,
+    };
+    render_global_status(f, chunks[0], &status, theme, typography);
 
     let filtered = sessions_state.get_filtered_sessions();
     let items: Vec<ListItem> = filtered
@@ -54,6 +53,10 @@ pub fn render_sessions_view(
         .style(typography.caption.fg(theme.secondary))
         .block(Block::default().borders(Borders::NONE));
     f.render_widget(footer, chunks[2]);
+
+    // Render toasts placeholder
+    let queue = ToastQueue::with_capacity(3);
+    render_toasts(f, chunks[1], &queue, theme, typography);
 }
 
 

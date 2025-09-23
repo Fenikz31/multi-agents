@@ -6,7 +6,7 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style, Stylize};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 
-use super::super::components::{TaskCard, Task, TaskStatus, TaskPriority, render_task_card};
+use super::super::components::{TaskCard, Task, TaskStatus, TaskPriority, render_task_card, ToastQueue, render_toasts, GlobalStatus, GlobalStateIcon, render_global_status};
 use super::super::themes::{ThemePalette, Typography};
 
 /// Kanban column data structure
@@ -112,18 +112,15 @@ pub fn render_kanban_view(f: &mut ratatui::Frame, area: Rect, kanban_view: &Kanb
         ])
         .split(area);
 
-    // Header
-    let header_text = format!(
-        "Kanban Board | Columns: {} | Total: {} | Completed: {} | Filter: {}",
-        kanban_view.columns.len(),
-        kanban_view.get_total_tasks(),
-        kanban_view.get_completed_tasks(),
-        if kanban_view.filter.is_empty() { "None" } else { &kanban_view.filter }
-    );
-    let header = Paragraph::new(header_text)
-        .style(typography.subtitle.fg(theme.primary))
-        .block(Block::default().borders(Borders::ALL).border_style(theme.primary));
-    f.render_widget(header, chunks[0]);
+    // Header (global status)
+    let status = GlobalStatus {
+        project_name: "<project>".to_string(),
+        view_name: "Kanban".to_string(),
+        focus: "Body".to_string(),
+        icon: GlobalStateIcon::Active,
+        last_action: None,
+    };
+    render_global_status(f, chunks[0], &status, theme, typography);
 
     // Kanban board
     let board_chunks = Layout::default()
@@ -150,6 +147,12 @@ pub fn render_kanban_view(f: &mut ratatui::Frame, area: Rect, kanban_view: &Kanb
         .style(typography.caption.fg(theme.secondary))
         .block(Block::default().borders(Borders::NONE));
     f.render_widget(footer, chunks[2]);
+
+    // Render toasts over the footer/body area (bottom-right)
+    // For now, use an empty queue placeholder until wired with state
+    let queue = ToastQueue::with_capacity(3);
+    // Example (commented): queue.enqueue(Toast::new(ToastType::Success, "Saved", Some(2000)));
+    render_toasts(f, chunks[1], &queue, theme, typography);
 }
 
 pub fn render_kanban_column(
