@@ -31,12 +31,14 @@ pub struct TuiRuntime {
     current_theme: ThemeKind,
     prefix_g: bool,
     current_mode: DisplayMode,
+    last_output: String,
+    last_draw: Instant,
 }
 
 impl TuiRuntime {
     /// Create a new runtime with a default tick of 200ms
     pub fn new(state_manager: StateManager) -> Self {
-        Self { state_manager, tick_rate: Duration::from_millis(200), running: true, current_theme: ThemeKind::Dark, prefix_g: false, current_mode: DisplayMode::Normal }
+        Self { state_manager, tick_rate: Duration::from_millis(200), running: true, current_theme: ThemeKind::Dark, prefix_g: false, current_mode: DisplayMode::Normal, last_output: String::new(), last_draw: Instant::now() }
     }
 
     /// Initialize app states and set initial state
@@ -72,9 +74,15 @@ impl TuiRuntime {
 
         let res = (|| -> Result<(), Box<dyn Error>> {
             while self.running {
-                // Render current state as text for now
+                // Render current state only if content changed or a full second passed (keep ≤5Hz)
                 let output = self.state_manager.render()?;
-                terminal.draw(|f| {
+                let should_redraw = output != self.last_output || self.last_draw.elapsed() >= Duration::from_millis(1000);
+                if should_redraw {
+                    self.last_output = output.clone();
+                    self.last_draw = Instant::now();
+                }
+                if should_redraw {
+                    terminal.draw(|f| {
                     let size = f.area();
                     let chunks = Layout::default()
                         .direction(Direction::Vertical)
@@ -92,7 +100,8 @@ impl TuiRuntime {
                     let block = Block::default().title(Line::from(vec![Span::raw("Multi-Agents TUI")])).borders(Borders::ALL);
                     let para = Paragraph::new(output).block(block).style(theme.type_scale.body);
                     f.render_widget(para, chunks[0]);
-                })?;
+                    })?;
+                }
 
                 let timeout = tick_rate.saturating_sub(last_tick.elapsed());
                 if event::poll(timeout)? {

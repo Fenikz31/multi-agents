@@ -14,6 +14,8 @@ pub struct KanbanState {
     pub selected_column: usize,
     pub selected_task: Option<usize>,
     pub filter: String,
+    // cache
+    cached_columns: Option<Vec<KanbanColumn>>,
 }
 
 /// Task item for Kanban
@@ -42,6 +44,7 @@ impl KanbanState {
             selected_column: 0,
             selected_task: None,
             filter: String::new(),
+            cached_columns: None,
         }
     }
 
@@ -62,6 +65,7 @@ impl KanbanState {
     
     /// Get columns
     pub fn get_columns(&self) -> Vec<KanbanColumn> {
+        if let Some(cols) = &self.cached_columns { return cols.clone(); }
         let mut columns = vec![
             KanbanColumn {
                 name: "To Do".to_string(),
@@ -103,6 +107,7 @@ impl KanbanState {
     pub fn move_task(&mut self, task_id: &str, new_status: &str) -> Result<(), Box<dyn Error>> {
         if let Some(task) = self.tasks.iter_mut().find(|t| t.id == task_id) {
             task.status = new_status.to_string();
+            self.cached_columns = None; // invalidate cache
             Ok(())
         } else {
             Err(format!("Task with ID '{}' not found", task_id).into())
@@ -119,6 +124,7 @@ impl KanbanState {
             priority: "medium".to_string(),
         };
         self.tasks.push(task);
+        self.cached_columns = None; // invalidate cache
     }
 }
 
