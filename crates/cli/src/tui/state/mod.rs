@@ -5,10 +5,15 @@
 
 pub mod view_state;
 pub mod navigation_state;
+pub mod selection_store;
 
 use std::error::Error;
 
 /// Generic state trait for TUI states
+pub struct StateContext {
+    pub selected_project_id: Option<String>,
+}
+
 pub trait TuiState {
     /// Handle user input for this state
     fn handle_input(&mut self, input: &str) -> Result<StateTransition, Box<dyn Error>>;
@@ -21,6 +26,9 @@ pub trait TuiState {
     
     /// Check if this state can transition to another state
     fn can_transition_to(&self, target_state: &str) -> bool;
+
+    /// Lifecycle hook invoked upon entering this state
+    fn on_enter(&mut self, _ctx: &StateContext) -> Result<(), Box<dyn Error>> { Ok(()) }
 }
 
 /// State transition result
@@ -96,7 +104,13 @@ impl StateManager {
             StateTransition::Transition(target_state) => {
                 if let Some(current_state) = self.states.get(&self.current_state) {
                     if current_state.can_transition_to(&target_state) {
-                        self.set_current_state(target_state)
+                        self.set_current_state(target_state.clone())?;
+                        // Build context and notify the new state
+                        let ctx = StateContext { selected_project_id: selection_store::get_project_id() };
+                        if let Some(state) = self.states.get_mut(&target_state) {
+                            state.on_enter(&ctx)?;
+                        }
+                        Ok(())
                     } else {
                         Err(format!("Cannot transition from '{}' to '{}'", self.current_state, target_state).into())
                     }

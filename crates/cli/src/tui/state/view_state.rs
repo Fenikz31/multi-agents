@@ -4,7 +4,9 @@
 //! their specific data and interactions.
 
 use std::error::Error;
-use super::{TuiState, StateTransition};
+use super::{TuiState, StateTransition, StateContext};
+use crate::repository::{RepositoryManager};
+use db::open_or_create_db;
 
 /// Kanban view state
 pub struct KanbanState {
@@ -41,6 +43,21 @@ impl KanbanState {
             selected_task: None,
             filter: String::new(),
         }
+    }
+
+    /// Load tasks from SQLite for a given project id
+    pub fn load_from_db(&mut self, db_path: &str, project_id: &str) -> Result<(), Box<dyn Error>> {
+        let conn = open_or_create_db(db_path)?;
+        let repo = RepositoryManager::new(conn);
+        let rows = repo.tasks.list_by_project(project_id)?;
+        self.tasks = rows.into_iter().map(|r| TaskItem {
+            id: r.id,
+            title: r.title,
+            status: r.status,
+            assignee: None,
+            priority: "medium".to_string(),
+        }).collect();
+        Ok(())
     }
     
     /// Get columns
@@ -106,6 +123,12 @@ impl KanbanState {
 }
 
 impl TuiState for KanbanState {
+    fn on_enter(&mut self, ctx: &StateContext) -> Result<(), Box<dyn Error>> {
+        if let Some(project_id) = &ctx.selected_project_id {
+            let _ = self.load_from_db("./data/multi-agents.sqlite3", project_id);
+        }
+        Ok(())
+    }
     fn handle_input(&mut self, input: &str) -> Result<StateTransition, Box<dyn Error>> {
         match input.trim() {
             "q" | "quit" => Ok(StateTransition::Exit),
@@ -146,6 +169,60 @@ impl TuiState for KanbanState {
                         }
                     } else if !column.tasks.is_empty() {
                         self.selected_task = Some(0);
+                    }
+                }
+                Ok(StateTransition::Stay)
+            }
+            "tab" => {
+                let columns = self.get_columns();
+                if self.selected_column + 1 < columns.len() { self.selected_column += 1; }
+                Ok(StateTransition::Stay)
+            }
+            "backtab" => {
+                if self.selected_column > 0 { self.selected_column -= 1; }
+                Ok(StateTransition::Stay)
+            }
+            ">" => {
+                // Move selected task one step right in workflow
+                if let Some(sel_idx) = self.selected_task {
+                    // Resolve current selected task id before mutation
+                    let current_columns = self.get_columns();
+                    if let Some(col) = current_columns.get(self.selected_column) {
+                        if let Some(task) = col.tasks.get(sel_idx) {
+                            let new_status = match task.status.as_str() {
+                                "todo" => "doing",
+                                "doing" => "done",
+                                other => other,
+                            };
+                            let _ = self.move_task(&task.id, new_status);
+                            // Move focus to the next column since task moved right
+                            let cols_len = current_columns.len();
+                            if self.selected_column + 1 < cols_len { self.selected_column += 1; }
+                            // Reset selection to first item in the new column
+                            self.selected_task = Some(0);
+                        }
+                    }
+                }
+                Ok(StateTransition::Stay)
+            }
+            "<" => {
+                // Move selected task one step left in workflow
+                if let Some(sel_idx) = self.selected_task {
+                    // Resolve current selected task id before mutation
+                    let current_columns = self.get_columns();
+                    if let Some(col) = current_columns.get(self.selected_column) {
+                        if let Some(task) = col.tasks.get(sel_idx) {
+                            let new_status = match task.status.as_str() {
+                                "done" => "doing",
+                                "doing" => "todo",
+                                other => other,
+                            };
+                            let _ = self.move_task(&task.id, new_status);
+                            // Move focus to the previous column since task moved left
+                            if self.selected_column > 0 { self.selected_column -= 1; }
+                            // Reset selection to first item in the new column
+                            self.selected_task = Some(0);
+                        }
                     }
                 }
                 Ok(StateTransition::Stay)

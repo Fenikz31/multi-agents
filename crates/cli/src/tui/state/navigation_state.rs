@@ -4,6 +4,7 @@
 
 use std::error::Error;
 use super::{TuiState, StateTransition};
+use super::selection_store;
 
 /// Help state for showing help information
 pub struct HelpState {
@@ -30,11 +31,11 @@ impl HelpState {
                 },
                 HelpSection {
                     title: "Navigation".to_string(),
-                    content: "Arrow keys - Navigate\nTab - Switch between views\nEnter - Select/Activate".to_string(),
+                    content: "Arrow keys - Navigate\nTab/Shift+Tab - Switch focus (columns/items)\nEnter - Select/Activate".to_string(),
                 },
                 HelpSection {
                     title: "Kanban View".to_string(),
-                    content: "← → - Navigate columns\n↑ ↓ - Select tasks\nSpace - Move task to next status\nn - New task".to_string(),
+                    content: "← → - Navigate columns\n↑ ↓ - Select tasks\nTab/Shift+Tab - Switch focus\n< > - Move task left/right\nSpace - Move task to next status\nn - New task".to_string(),
                 },
                 HelpSection {
                     title: "Sessions View".to_string(),
@@ -206,6 +207,10 @@ impl TuiState for ProjectSelectState {
             }
             "enter" | "return" => {
                 if let Some(_project) = self.get_selected_project() {
+                    // Persist selected project id for subsequent views
+                    if let Some(project) = self.get_selected_project() {
+                        selection_store::set_project_id(project.id.clone());
+                    }
                     Ok(StateTransition::Transition("kanban".to_string()))
                 } else {
                     Ok(StateTransition::Error("No project selected".to_string()))

@@ -139,6 +139,27 @@ mod kanban_state_tests {
     }
 
     #[test]
+    fn test_kanban_state_tab_navigation_and_move_between_columns() {
+        let mut state = KanbanState::new();
+        state.tasks = vec![
+            TaskItem { id: "t1".into(), title: "A".into(), status: "todo".into(), assignee: None, priority: "medium".into() },
+            TaskItem { id: "t2".into(), title: "B".into(), status: "doing".into(), assignee: None, priority: "medium".into() },
+        ];
+
+        assert_eq!(state.selected_column, 0);
+        let _ = state.handle_input("tab");
+        assert_eq!(state.selected_column, 1);
+        let _ = state.handle_input("backtab");
+        assert_eq!(state.selected_column, 0);
+
+        state.selected_task = Some(0);
+        let _ = state.handle_input(">");
+        assert_eq!(state.tasks.iter().find(|t| t.id == "t1").unwrap().status, "doing");
+        let _ = state.handle_input("<");
+        assert_eq!(state.tasks.iter().find(|t| t.id == "t1").unwrap().status, "todo");
+    }
+
+    #[test]
     fn test_kanban_state_render() {
         let state = KanbanState::new();
         let result = state.render();

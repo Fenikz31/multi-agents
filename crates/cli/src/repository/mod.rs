@@ -6,6 +6,7 @@
 pub mod project_repository;
 pub mod agent_repository;
 pub mod session_repository;
+pub mod task_repository;
 
 use std::error::Error;
 use std::sync::{Arc, Mutex};
@@ -34,6 +35,7 @@ pub struct RepositoryManager {
     pub projects: project_repository::ProjectRepository,
     pub agents: agent_repository::AgentRepository,
     pub sessions: session_repository::SessionRepository,
+    pub tasks: task_repository::TaskRepository,
 }
 
 impl RepositoryManager {
@@ -43,7 +45,8 @@ impl RepositoryManager {
         Self {
             projects: project_repository::ProjectRepository::new(shared_conn.clone()),
             agents: agent_repository::AgentRepository::new(shared_conn.clone()),
-            sessions: session_repository::SessionRepository::new(shared_conn),
+            sessions: session_repository::SessionRepository::new(shared_conn.clone()),
+            tasks: task_repository::TaskRepository::new(shared_conn),
         }
     }
 }
