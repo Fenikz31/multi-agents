@@ -5,6 +5,7 @@
 
 pub mod view_state;
 pub mod navigation_state;
+pub mod selection_store;
 
 use std::error::Error;
 
@@ -96,7 +97,18 @@ impl StateManager {
             StateTransition::Transition(target_state) => {
                 if let Some(current_state) = self.states.get(&self.current_state) {
                     if current_state.can_transition_to(&target_state) {
-                        self.set_current_state(target_state)
+                        // If transitioning to kanban, attempt to load tasks for selected project
+                        let res = self.set_current_state(target_state.clone());
+                        if res.is_ok() && target_state == "kanban" {
+                            if let Some(project_id) = selection_store::get_project_id() {
+                                if let Some(state) = self.states.get_mut("kanban") {
+                                    if let Some(kanban) = state.downcast_mut::<view_state::KanbanState>() {
+                                        let _ = kanban.load_from_db("./data/multi-agents.sqlite3", &project_id);
+                                    }
+                                }
+                            }
+                        }
+                        res
                     } else {
                         Err(format!("Cannot transition from '{}' to '{}'", self.current_state, target_state).into())
                     }
