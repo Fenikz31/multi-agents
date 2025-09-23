@@ -3,6 +3,8 @@
 pub mod task_card;
 pub mod session_item;
 pub mod log_viewer;
+pub mod toast;
+pub mod status;
 
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style, Stylize};
@@ -15,6 +17,8 @@ use super::themes::{ThemePalette, Typography};
 pub use task_card::{TaskCard, Task, TaskStatus, TaskPriority, render_task_card, render_task_card_compact};
 pub use session_item::{SessionItem, Session, SessionStatus, Provider, render_session_item, render_session_item_compact, render_session_status_badge};
 pub use log_viewer::{LogViewer, LogEntry, LogLevel, LogFilter, render_log_viewer, render_log_entry};
+pub use toast::{Toast, ToastType, ToastQueue, render_toasts};
+pub use status::{GlobalStatus, GlobalStateIcon, render_global_status};
 
 /// Renders a styled button.
 pub fn render_button(f: &mut ratatui::Frame, area: Rect, text: &str, is_selected: bool, theme: &ThemePalette, typography: &Typography) {
