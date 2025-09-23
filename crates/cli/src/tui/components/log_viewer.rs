@@ -10,6 +10,10 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Widget};
 
 use super::super::themes::{ThemePalette, Typography};
+use std::fs::File;
+use std::io::Write;
+use std::error::Error;
+use serde_json::Value;
 
 /// Log level enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -182,6 +186,35 @@ impl LogViewer {
                 true
             })
             .collect()
+    }
+
+    /// Export current filtered logs to a file (one line per log)
+    pub fn export_to_file(&self, path: &str) -> Result<(), Box<dyn Error>> {
+        let mut file = File::create(path)?;
+        for log in self.get_filtered_logs() {
+            let line = format!(
+                "{} [{}] {}\n",
+                log.timestamp,
+                log.level.label(),
+                log.message
+            );
+            file.write_all(line.as_bytes())?;
+        }
+        Ok(())
+    }
+
+    /// Ingest a single NDJSON line (lenient). Unknown/missing fields are ignored.
+    pub fn ingest_ndjson_line(&mut self, line: &str) {
+        if let Ok(v) = serde_json::from_str::<Value>(line) {
+            let timestamp = v.get("timestamp").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let level = v.get("level").and_then(|x| x.as_str()).and_then(LogLevel::from_str).unwrap_or(LogLevel::Info);
+            let message = v.get("message").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let source = v.get("source").and_then(|x| x.as_str()).map(|s| s.to_string());
+            let metadata = v.get("metadata").and_then(|x| x.as_str()).map(|s| s.to_string());
+            if !message.is_empty() {
+                self.add_log(LogEntry { timestamp, level, message, source, metadata });
+            }
+        }
     }
 }
 
