@@ -122,14 +122,21 @@ pub fn render_kanban_view(f: &mut ratatui::Frame, area: Rect, kanban_view: &Kanb
     };
     render_global_status(f, chunks[0], &status, theme, typography);
 
-    // Kanban board
+    // Kanban board (responsive)
+    let (c1, c2, c3) = if chunks[1].width <= 80 {
+        (Constraint::Percentage(100), Constraint::Length(0), Constraint::Length(0))
+    } else if chunks[1].width <= 140 {
+        (Constraint::Percentage(50), Constraint::Percentage(50), Constraint::Length(0))
+    } else {
+        (Constraint::Percentage(33), Constraint::Percentage(34), Constraint::Percentage(33))
+    };
+    let mut constraints: Vec<Constraint> = Vec::new();
+    constraints.push(c1);
+    if c2 != Constraint::Length(0) { constraints.push(c2); }
+    if c3 != Constraint::Length(0) { constraints.push(c3); }
     let board_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(33),
-            Constraint::Percentage(34),
-            Constraint::Percentage(33),
-        ])
+        .constraints(constraints)
         .split(chunks[1]);
 
     for (i, column) in kanban_view.columns.iter().enumerate() {
