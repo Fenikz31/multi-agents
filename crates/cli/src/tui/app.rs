@@ -104,6 +104,8 @@ impl TuiRuntime {
                                 KeyCode::Down => { self.process_input("down")?; }
                                 KeyCode::Left => { self.process_input("left")?; }
                                 KeyCode::Right => { self.process_input("right")?; }
+                                KeyCode::Tab => { self.process_input("tab")?; }
+                                KeyCode::BackTab => { self.process_input("backtab")?; }
                                 KeyCode::Enter => { self.process_input("enter")?; }
                                 _ => {}
                             }

@@ -167,6 +167,49 @@ impl TuiState for KanbanState {
                 }
                 Ok(StateTransition::Stay)
             }
+            "tab" => {
+                let columns = self.get_columns();
+                if self.selected_column + 1 < columns.len() { self.selected_column += 1; }
+                Ok(StateTransition::Stay)
+            }
+            "backtab" => {
+                if self.selected_column > 0 { self.selected_column -= 1; }
+                Ok(StateTransition::Stay)
+            }
+            ">" => {
+                // Move selected task one step right in workflow
+                if let Some(sel_idx) = self.selected_task {
+                    let columns = self.get_columns();
+                    if let Some(col) = columns.get(self.selected_column) {
+                        if let Some(task) = col.tasks.get(sel_idx) {
+                            let new_status = match task.status.as_str() {
+                                "todo" => "doing",
+                                "doing" => "done",
+                                other => other,
+                            };
+                            let _ = self.move_task(&task.id, new_status);
+                        }
+                    }
+                }
+                Ok(StateTransition::Stay)
+            }
+            "<" => {
+                // Move selected task one step left in workflow
+                if let Some(sel_idx) = self.selected_task {
+                    let columns = self.get_columns();
+                    if let Some(col) = columns.get(self.selected_column) {
+                        if let Some(task) = col.tasks.get(sel_idx) {
+                            let new_status = match task.status.as_str() {
+                                "done" => "doing",
+                                "doing" => "todo",
+                                other => other,
+                            };
+                            let _ = self.move_task(&task.id, new_status);
+                        }
+                    }
+                }
+                Ok(StateTransition::Stay)
+            }
             "space" => {
                 // Move selected task to next status
                 let columns = self.get_columns();
