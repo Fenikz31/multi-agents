@@ -98,18 +98,18 @@ pub fn render_toasts(
     let right = container_chunks[1];
 
     let v_constraints: Vec<Constraint> = visible.iter().map(|_| Constraint::Length(3)).collect();
-    let mut stack = Layout::default()
+    let stack = Layout::default()
         .direction(Direction::Vertical)
         .constraints(v_constraints)
         .split(right);
 
-    // We want bottom-up stacking: map the newest (first in `visible`) to the last rect
-    stack.reverse();
-
+    // Bottom-up stacking: newest (first in `visible`) goes to the last rect
     for (i, toast) in visible.into_iter().enumerate() {
-        let rect = stack.get(i).copied().unwrap_or(right);
+        let idx_from_bottom = stack.len().saturating_sub(1).saturating_sub(i);
+        let rect = stack.get(idx_from_bottom).copied().unwrap_or(right);
         let (fg, border) = match toast.kind {
-            ToastType::Info => (theme.info, theme.info),
+            // Theme has no `info`; use `secondary` for informational toasts
+            ToastType::Info => (theme.secondary, theme.secondary),
             ToastType::Success => (theme.success, theme.success),
             ToastType::Warn => (theme.warning, theme.warning),
             ToastType::Error => (theme.error, theme.error),

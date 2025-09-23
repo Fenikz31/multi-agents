@@ -150,7 +150,7 @@ pub fn render_kanban_view(f: &mut ratatui::Frame, area: Rect, kanban_view: &Kanb
 
     // Render toasts over the footer/body area (bottom-right)
     // For now, use an empty queue placeholder until wired with state
-    let mut queue = ToastQueue::with_capacity(3);
+    let queue = ToastQueue::with_capacity(3);
     // Example (commented): queue.enqueue(Toast::new(ToastType::Success, "Saved", Some(2000)));
     render_toasts(f, chunks[1], &queue, theme, typography);
 }
