@@ -21,18 +21,21 @@ use ratatui::Terminal;
 
 use super::state::{StateManager, StateTransition};
 use super::TuiError;
+use super::themes::{Theme, ThemeKind};
 
 /// TUI App using ratatui/crossterm
 pub struct TuiRuntime {
     state_manager: StateManager,
     tick_rate: Duration,
     running: bool,
+    current_theme: ThemeKind,
+    prefix_g: bool,
 }
 
 impl TuiRuntime {
     /// Create a new runtime with a default tick of 200ms
     pub fn new(state_manager: StateManager) -> Self {
-        Self { state_manager, tick_rate: Duration::from_millis(200), running: true }
+        Self { state_manager, tick_rate: Duration::from_millis(200), running: true, current_theme: ThemeKind::Dark, prefix_g: false }
     }
 
     /// Initialize app states and set initial state
@@ -77,7 +80,7 @@ impl TuiRuntime {
                         .constraints([Constraint::Percentage(100)].as_ref())
                         .split(size);
 
-                    let theme = crate::tui::themes::Theme::new(crate::tui::themes::ThemeKind::Dark);
+                    let theme = Theme::new(self.current_theme);
                     let block = Block::default().title(Line::from(vec![Span::raw("Multi-Agents TUI")])).borders(Borders::ALL);
                     let para = Paragraph::new(output).block(block).style(theme.type_scale.body);
                     f.render_widget(para, chunks[0]);
@@ -91,14 +94,22 @@ impl TuiRuntime {
                                 KeyCode::Char('q') => {
                                     self.running = false;
                                 }
+                                KeyCode::Char('g') => { self.prefix_g = true; }
+                                KeyCode::Char('T') => {
+                                    if self.prefix_g { self.cycle_theme(); }
+                                    self.prefix_g = false;
+                                }
                                 KeyCode::Char('h') => {
                                     self.process_input("h")?;
+                                    self.prefix_g = false;
                                 }
                                 KeyCode::Char('k') => {
                                     self.process_input("k")?;
+                                    self.prefix_g = false;
                                 }
                                 KeyCode::Char('s') => {
                                     self.process_input("s")?;
+                                    self.prefix_g = false;
                                 }
                                 KeyCode::Up => { self.process_input("up")?; }
                                 KeyCode::Down => { self.process_input("down")?; }
@@ -137,6 +148,14 @@ impl TuiRuntime {
             other => { self.state_manager.process_transition(other)?; }
         }
         Ok(())
+    }
+
+    fn cycle_theme(&mut self) {
+        self.current_theme = match self.current_theme {
+            ThemeKind::Light => ThemeKind::Dark,
+            ThemeKind::Dark => ThemeKind::HighContrast,
+            ThemeKind::HighContrast => ThemeKind::Light,
+        };
     }
 }
 
