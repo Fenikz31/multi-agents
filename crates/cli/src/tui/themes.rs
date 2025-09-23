@@ -76,6 +76,26 @@ pub fn default_typography(palette: &ThemePalette) -> Typography {
     }
 }
 
+/// Compact typography: reduce emphasis and rely more on body styles
+pub fn compact_typography(palette: &ThemePalette) -> Typography {
+    Typography {
+        title: Style::default().fg(palette.text).add_modifier(Modifier::BOLD),
+        subtitle: Style::default().fg(palette.secondary),
+        body: Style::default().fg(palette.text),
+        caption: Style::default().fg(palette.secondary).add_modifier(Modifier::DIM),
+    }
+}
+
+/// High-density typography: minimize visual weight and spacing
+pub fn high_density_typography(palette: &ThemePalette) -> Typography {
+    Typography {
+        title: Style::default().fg(palette.text).add_modifier(Modifier::BOLD),
+        subtitle: Style::default().fg(palette.secondary).add_modifier(Modifier::DIM),
+        body: Style::default().fg(palette.text),
+        caption: Style::default().fg(palette.secondary).add_modifier(Modifier::DIM),
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Theme {
     pub kind: ThemeKind,
@@ -88,6 +108,12 @@ impl Theme {
         let palette = kind.palette();
         let type_scale = default_typography(&palette);
         Self { kind, palette, type_scale }
+    }
+
+    /// Create theme with custom typography (for compact/high-density modes)
+    pub fn with_typography(kind: ThemeKind, typography: Typography) -> Self {
+        let palette = kind.palette();
+        Self { kind, palette, type_scale: typography }
     }
 
     pub fn button_primary(&self) -> Style {

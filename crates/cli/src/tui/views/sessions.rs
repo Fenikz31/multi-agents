@@ -3,6 +3,7 @@
 //! Renders a simple sessions list with header/footer using ratatui.
 
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::style::{Modifier, Stylize};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 
 use super::super::themes::{ThemePalette, Typography};
@@ -35,16 +36,27 @@ pub fn render_sessions_view(
     render_global_status(f, chunks[0], &status, theme, typography);
 
     let filtered = sessions_state.get_filtered_sessions();
+    let list_area = chunks[1];
     let items: Vec<ListItem> = filtered
         .iter()
         .map(|s| {
-            let text = format!("{} [{}] {}", s.agent_name, s.provider, s.status);
+            let text = if list_area.width <= 60 {
+                // Ultra-compact: agent + status only
+                format!("{}  [{}]", s.agent_name, s.status)
+            } else if list_area.width <= 100 {
+                // Compact: agent + provider + status
+                format!("{}  [{}]  {}", s.agent_name, s.provider, s.status)
+            } else {
+                // Extended: include duration
+                format!("{}  [{}]  {}  · {}", s.agent_name, s.provider, s.status, s.duration)
+            };
             ListItem::new(text).style(typography.body.fg(theme.text))
         })
         .collect();
 
     let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).border_style(theme.secondary));
+        .block(Block::default().borders(Borders::ALL).border_style(theme.secondary))
+        .highlight_style(typography.body.fg(theme.primary).add_modifier(Modifier::REVERSED));
     let mut list_state = ListState::default();
     list_state.select(sessions_state.selected_session);
     f.render_stateful_widget(list, chunks[1], &mut list_state);

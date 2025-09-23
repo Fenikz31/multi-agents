@@ -173,6 +173,49 @@ impl TuiState for KanbanState {
                 }
                 Ok(StateTransition::Stay)
             }
+            "home" => {
+                let columns = self.get_columns();
+                if let Some(column) = columns.get(self.selected_column) {
+                    if !column.tasks.is_empty() {
+                        self.selected_task = Some(0);
+                    }
+                }
+                Ok(StateTransition::Stay)
+            }
+            "end" => {
+                let columns = self.get_columns();
+                if let Some(column) = columns.get(self.selected_column) {
+                    if !column.tasks.is_empty() {
+                        self.selected_task = Some(column.tasks.len().saturating_sub(1));
+                    }
+                }
+                Ok(StateTransition::Stay)
+            }
+            "pageup" => {
+                let columns = self.get_columns();
+                if let Some(column) = columns.get(self.selected_column) {
+                    if let Some(selected) = self.selected_task {
+                        let new_idx = selected.saturating_sub(5);
+                        self.selected_task = Some(new_idx);
+                    } else if !column.tasks.is_empty() {
+                        self.selected_task = Some(0);
+                    }
+                }
+                Ok(StateTransition::Stay)
+            }
+            "pagedown" => {
+                let columns = self.get_columns();
+                if let Some(column) = columns.get(self.selected_column) {
+                    if let Some(selected) = self.selected_task {
+                        let max_last = column.tasks.len().saturating_sub(1);
+                        let new_idx = (selected + 5).min(max_last);
+                        self.selected_task = Some(new_idx);
+                    } else if !column.tasks.is_empty() {
+                        self.selected_task = Some(0);
+                    }
+                }
+                Ok(StateTransition::Stay)
+            }
             "tab" => {
                 let columns = self.get_columns();
                 if self.selected_column + 1 < columns.len() { self.selected_column += 1; }
@@ -410,6 +453,38 @@ impl TuiState for SessionsState {
                     if selected < filtered.len() - 1 {
                         self.selected_session = Some(selected + 1);
                     }
+                } else if !filtered.is_empty() {
+                    self.selected_session = Some(0);
+                }
+                Ok(StateTransition::Stay)
+            }
+            "home" => {
+                let filtered = self.get_filtered_sessions();
+                if !filtered.is_empty() {
+                    self.selected_session = Some(0);
+                }
+                Ok(StateTransition::Stay)
+            }
+            "end" => {
+                let filtered = self.get_filtered_sessions();
+                if !filtered.is_empty() {
+                    self.selected_session = Some(filtered.len().saturating_sub(1));
+                }
+                Ok(StateTransition::Stay)
+            }
+            "pageup" => {
+                if let Some(selected) = self.selected_session {
+                    self.selected_session = Some(selected.saturating_sub(5));
+                } else if !self.sessions.is_empty() {
+                    self.selected_session = Some(0);
+                }
+                Ok(StateTransition::Stay)
+            }
+            "pagedown" => {
+                let filtered = self.get_filtered_sessions();
+                if let Some(selected) = self.selected_session {
+                    let last = filtered.len().saturating_sub(1);
+                    self.selected_session = Some((selected + 5).min(last));
                 } else if !filtered.is_empty() {
                     self.selected_session = Some(0);
                 }
