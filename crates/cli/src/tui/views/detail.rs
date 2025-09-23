@@ -4,7 +4,7 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
 use super::super::themes::{ThemePalette, Typography};
-use crate::tui::components::log_viewer::LogViewer;
+use crate::tui::components::log_viewer::{LogViewer, render_log_viewer};
 
 pub fn render_detail_view(
     f: &mut ratatui::Frame,
@@ -29,7 +29,7 @@ pub fn render_detail_view(
     f.render_widget(header, chunks[0]);
 
     // Use existing component to render the logs
-    log_viewer.render(f, chunks[1], theme, typography);
+    render_log_viewer(f, chunks[1], log_viewer, theme, typography);
 
     let footer = Paragraph::new("↑ ↓ scroll  g/G home/end  F follow  / search  e export")
         .style(typography.caption.fg(theme.secondary))
