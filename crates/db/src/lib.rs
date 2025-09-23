@@ -187,6 +187,18 @@ pub enum SessionType {
     Repl,
 }
 
+// ---------- Tasks Management Types ----------
+
+#[derive(Debug, Clone)]
+pub struct Task {
+    pub id: String,
+    pub project_id: String,
+    pub title: String,
+    pub status: String,
+    pub assignee_agent_id: Option<String>,
+    pub created_at: String,
+}
+
 impl std::fmt::Display for SessionStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
