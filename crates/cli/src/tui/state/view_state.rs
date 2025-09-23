@@ -432,7 +432,7 @@ impl TuiState for SessionsState {
                 Ok(StateTransition::Stay)
             }
             "r" => Ok(StateTransition::Error("Resume session not implemented yet".to_string())),
-            "x" => Ok(StateTransition::Error("Stop session not implemented yet".to_string())),
+            "X" => Ok(StateTransition::Error("Stop session not implemented yet".to_string())),
             "S" => Ok(StateTransition::Error("Start session not implemented yet".to_string())),
             "s" | "start" => {
                 // Start new session
