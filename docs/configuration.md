@@ -10,11 +10,46 @@ Default locations and resolution
 - ENV:
   - `MULTI_AGENTS_PROJECT_FILE`, `MULTI_AGENTS_PROVIDERS_FILE` point to explicit files.
   - `MULTI_AGENTS_CONFIG_DIR` points to a directory containing `project.(yaml|yml)` and `providers.(yaml|yml)`.
+  - `MULTI_AGENTS_HOME` sets application home directory (affects config, DB, logs paths).
+  - `XDG_CONFIG_HOME` sets XDG config directory (defaults to `$HOME/.config`).
 - Defaults (if nothing provided): `./config/project.yaml|yml`, `./config/providers.yaml|yml`.
 - If no resolvable file is found: exit 6 (config missing).
 
+Path Resolution (XDG-compliant)
+The CLI uses centralized path resolution following XDG Base Directory specification:
+
+**Configuration Directory Resolution:**
+1. `MULTI_AGENTS_CONFIG_DIR` - Explicit override
+2. `MULTI_AGENTS_HOME/config` - Application-specific home
+3. `XDG_CONFIG_HOME/multi-agents` - XDG config directory
+4. `$HOME/.config/multi-agents` - XDG fallback
+5. `./config` - Development fallback
+
+**Database Path Resolution:**
+1. `MULTI_AGENTS_DB` - Explicit database file path
+2. `MULTI_AGENTS_HOME/multi-agents.sqlite3` - Application-specific home
+3. `XDG_DATA_HOME/multi-agents/multi-agents.sqlite3` - XDG data directory
+4. `$HOME/.local/share/multi-agents/multi-agents.sqlite3` - XDG fallback
+5. `./data/multi-agents.sqlite3` - Development fallback
+
+**Logs Path Resolution:**
+1. `MULTI_AGENTS_LOGS_DIR` - Explicit logs directory
+2. `MULTI_AGENTS_HOME/logs` - Application-specific home
+3. `XDG_DATA_HOME/multi-agents/logs` - XDG data directory
+4. `$HOME/.local/share/multi-agents/logs` - XDG fallback
+5. `./logs` - Development fallback
+
 Bootstrap
 - `multi-agents config init [--dir <path>] [--force]` scaffolds minimal `project.yaml` and `providers.yaml` under the target directory (default `./config`). Existing files are not overwritten unless `--force`.
+
+TUI Auto-Seed
+- When the TUI starts and no projects are found in the database, it automatically attempts to seed from configuration files:
+  1. Resolves configuration paths using the same priority system
+  2. Reads and parses `project.yaml`
+  3. Synchronizes project and agents to the database
+  4. Reloads the project list for display
+- This ensures that existing configuration files are automatically imported when starting the TUI for the first time.
+- Auto-seed is non-fatal: if configuration files are missing or invalid, the TUI will start with an empty project list.
 
 project.yaml (minimal example)
 ```yaml

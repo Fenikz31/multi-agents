@@ -6,7 +6,7 @@ use config_model::{parse_project_yaml, parse_providers_yaml};
 use db::{open_or_create_db, find_project_id, IdOrName, sync_project_from_config};
 use crate::cli::commands::Format;
 use crate::utils::{
-    resolve_config_paths, handle_missing_config, DEFAULT_AGENT_TIMEOUT_MS, 
+    resolve_config_paths, handle_missing_config, resolve_db_path, DEFAULT_AGENT_TIMEOUT_MS, 
     exit_with
 };
 use crate::broadcast::{BroadcastManager, BroadcastMode, BroadcastTarget};
@@ -42,7 +42,7 @@ pub fn run_broadcast_oneshot(
     let project_name = project_name.unwrap_or(&project.project);
     
     // Sync project to database
-    let db_path = crate::utils::default_db_path();
+    let db_path = resolve_db_path();
     let conn = open_or_create_db(&db_path)?;
     sync_project_from_config(&conn, &project)
         .map_err(|e| format!("Failed to sync project: {}", e))?;

@@ -10,7 +10,7 @@ use db::{
 use rusqlite::params;
 use std::time::{Duration, Instant};
 use crate::cli::commands::Format;
-use crate::utils::{resolve_config_paths, handle_missing_config, default_db_path, short_id, exit_with};
+use crate::utils::{resolve_config_paths, handle_missing_config, resolve_db_path, short_id, exit_with};
 use crate::utils::timeouts::run_with_timeout;
 
 /// Run session start command
@@ -64,7 +64,7 @@ pub fn run_session_start(project_path_opt: Option<&str>, providers_path_opt: Opt
         short_id()
     };
     // Save session to database
-    let db_path = default_db_path();
+    let db_path = resolve_db_path();
     let conn = open_or_create_db(&db_path)?;
     
     // Find project and agent IDs
@@ -125,7 +125,7 @@ pub fn run_session_list(project_path_opt: Option<&str>, project_name_opt: Option
             .to_string()
     };
     
-    let db_path = default_db_path();
+    let db_path = resolve_db_path();
     let conn = open_or_create_db(&db_path)?;
     
     // Find project ID
@@ -206,7 +206,7 @@ pub fn run_session_list(project_path_opt: Option<&str>, project_name_opt: Option
 
 /// Run session resume command
 pub fn run_session_resume(conversation_id: &str, timeout_ms: Option<u64>) -> Result<(), Box<dyn std::error::Error>> {
-    let db_path = default_db_path();
+    let db_path = resolve_db_path();
     let conn = open_or_create_db(&db_path)?;
     
     // Find session
@@ -255,7 +255,7 @@ pub fn run_session_resume(conversation_id: &str, timeout_ms: Option<u64>) -> Res
 
 /// Run session cleanup command
 pub fn run_session_cleanup(_project_path_opt: Option<&str>, dry_run: bool, format: Format) -> Result<(), Box<dyn std::error::Error>> {
-    let db_path = default_db_path();
+    let db_path = resolve_db_path();
     let conn = open_or_create_db(&db_path)?;
     
     // Find expired sessions (older than 24 hours with no activity)

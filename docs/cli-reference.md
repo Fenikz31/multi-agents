@@ -3,8 +3,44 @@
 ## Environment Requirements
 - **OS**: Linux/WSL2 only
 - **Required CLIs in PATH**: `gemini`, `claude`, `cursor-agent`, `tmux`, `git`
-- **Database**: SQLite at `./data/multi-agents.sqlite3`
-- **Logs**: NDJSON format at `./logs/{project}/{role}.ndjson`
+- **Database**: SQLite (path resolved via environment variables, see Path Resolution below)
+- **Logs**: NDJSON format (path resolved via environment variables, see Path Resolution below)
+
+## Path Resolution
+
+The CLI uses a centralized path resolution system following XDG Base Directory specification and best practices:
+
+### Database Path Resolution
+Priority order for database location:
+1. `MULTI_AGENTS_DB` - Explicit database path override
+2. `MULTI_AGENTS_HOME/multi-agents.sqlite3` - Application-specific home directory
+3. `XDG_DATA_HOME/multi-agents/multi-agents.sqlite3` - XDG data directory
+4. `$HOME/.local/share/multi-agents/multi-agents.sqlite3` - XDG fallback
+5. `./data/multi-agents.sqlite3` - Development fallback
+
+### Configuration Path Resolution
+Priority order for configuration directory:
+1. `MULTI_AGENTS_CONFIG_DIR` - Explicit config directory override
+2. `MULTI_AGENTS_HOME/config` - Application-specific home directory
+3. `XDG_CONFIG_HOME/multi-agents` - XDG config directory
+4. `$HOME/.config/multi-agents` - XDG fallback
+5. `./config` - Development fallback
+
+### Logs Path Resolution
+Priority order for logs directory:
+1. `MULTI_AGENTS_LOGS_DIR` - Explicit logs directory override
+2. `MULTI_AGENTS_HOME/logs` - Application-specific home directory
+3. `XDG_DATA_HOME/multi-agents/logs` - XDG data directory
+4. `$HOME/.local/share/multi-agents/logs` - XDG fallback
+5. `./logs` - Development fallback
+
+### Environment Variables
+- `MULTI_AGENTS_DB` - Override database file path
+- `MULTI_AGENTS_HOME` - Application home directory (affects DB, config, logs)
+- `MULTI_AGENTS_CONFIG_DIR` - Override configuration directory
+- `MULTI_AGENTS_LOGS_DIR` - Override logs directory
+- `XDG_DATA_HOME` - XDG data directory (defaults to `$HOME/.local/share`)
+- `XDG_CONFIG_HOME` - XDG config directory (defaults to `$HOME/.config`)
 
 ## Global Behavior
 - **Concurrency**: Maximum 3 one-shot executions (FIFO queue with global semaphore)
@@ -590,7 +626,9 @@ Launches terminal user interface.
 **Troubleshooting:**
 - Terminal not restored properly: rerun any command like `reset` or start TUI again; restoration is handled automatically via RAII guard.
 - Slow rendering on large datasets: increase `--refresh-rate` (e.g., `--refresh-rate 300`) to reduce redraw frequency.
-- DB errors: initialize DB with `multi-agents db init`; verify file permissions under `./data/`.
+- DB errors: initialize DB with `multi-agents db init`; verify file permissions under resolved DB path (see Path Resolution above).
+- No projects visible: TUI auto-seeds from `./config/project.yaml` if DB is empty; check config file validity with `multi-agents config validate`.
+- Projects not loading: verify DB path resolution with environment variables; check logs for detailed initialization process.
 
 **Examples:**
 ```bash

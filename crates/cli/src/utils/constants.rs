@@ -19,7 +19,8 @@ pub const DEFAULT_TIMEOUT_GLOBAL_MS: u64 = 20000;
 pub const TMUX_RETRY_ATTEMPTS: u32 = 2;
 pub const TMUX_RETRY_DELAY_MS: u64 = 100;
 
-/// Default database path
+/// Default database path (deprecated - use resolve_db_path() instead)
+#[deprecated(note = "Use resolve_db_path() from db_path module instead")]
 pub fn default_db_path() -> String { 
     "./data/multi-agents.sqlite3".into() 
 }
