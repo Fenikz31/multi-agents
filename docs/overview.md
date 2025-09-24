@@ -9,7 +9,7 @@
 - Session Manager: maps internal `conversation_id` to provider `session_id`/`chat_id`.
 - tmux Manager: one pane per agent; REPL startup; keystroke broadcast; log capture. See `docs/tmux.md` for naming and pipe-pane conventions.
 - Store (SQLite): projects, agents, sessions, messages, tasks, broadcasts.
-- TUI (ratatui): Kanban board, sessions list, session detail (NDJSON tail).
+- TUI (ratatui): Kanban board, sessions list, session detail (NDJSON tail), auto-seed from configuration files.
 
 See also:
 - CLI Reference: [docs/cli-reference.md](cli-reference.md)
@@ -40,8 +40,9 @@ The CLI has been organized into a modular architecture:
 ## Environment
 - Linux/WSL2.
 - Required CLIs: `gemini`, `claude`, `cursor-agent`, `tmux`, `git`.
-- Database: `./data/multi-agents.sqlite3`.
-- Logs: `./logs/{project}/{role}.ndjson`.
+- Database: SQLite (path resolved via XDG-compliant environment variables, see [Configuration](configuration.md)).
+- Logs: NDJSON format (path resolved via XDG-compliant environment variables, see [Configuration](configuration.md)).
+- Configuration: YAML files (path resolved via XDG-compliant environment variables, see [Configuration](configuration.md)).
 
 ## Principles
 - CLI-only integration; avoid HTTP SDKs.
