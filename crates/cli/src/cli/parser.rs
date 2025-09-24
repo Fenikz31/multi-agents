@@ -57,6 +57,13 @@ impl Cli {
                     .unwrap_or_else(|| "default".to_string()));
                 run_monitor(&project_name, duration, &format!("{:?}", format), output.as_deref())
             },
+            Commands::Tui { project, refresh_rate } => {
+                let project_name = project.unwrap_or_else(|| std::env::current_dir()
+                    .ok()
+                    .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+                    .unwrap_or_else(|| "default".to_string()));
+                run_tui(&project_name, refresh_rate)
+            },
         }
     }
 }
