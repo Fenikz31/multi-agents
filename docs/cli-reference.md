@@ -623,7 +623,11 @@ multi-agents tui --project demo --refresh-rate 150
 +---------------------------------------------------------------------+
 ```
 
-> For real screenshots, see `docs/images/tui/kanban.png` and `docs/images/tui/sessions.png` (to be added).
+**Real Screenshots:**
+
+![Kanban View](images/tui/kanban.png)
+
+![Sessions View](images/tui/sessions.png)
 
 **Quick Start:**
 
