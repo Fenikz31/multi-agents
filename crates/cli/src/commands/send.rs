@@ -12,7 +12,7 @@ use rusqlite::params;
 use indicatif::{ProgressBar, ProgressStyle};
 use crate::cli::commands::Format;
 use crate::utils::{
-    resolve_config_paths, handle_missing_config, default_db_path, DEFAULT_SEND_TIMEOUT_MS, 
+    resolve_config_paths, handle_missing_config, resolve_db_path, DEFAULT_SEND_TIMEOUT_MS, 
     MAX_CONCURRENCY, short_id, uuid_v4_like, exit_with
 };
 use crate::utils::timeouts::run_with_timeout_streaming;
@@ -40,7 +40,7 @@ pub fn run_send(
     let providers = match parse_providers_yaml(&prov_s) { Ok(p) => p, Err(e) => return exit_with(2, format!("providers: {}", e)) };
 
     // Session management - sync project and agents to database
-    let db_path = default_db_path();
+    let db_path = resolve_db_path();
     let conn = open_or_create_db(&db_path)?;
     match db::sync_project_from_config(&conn, &project) {
         Ok(_) => {}, // Project synchronized successfully
@@ -343,7 +343,7 @@ fn run_oneshot_provider(
 
     // Update session last_activity if conversation_id provided
     if let Some(conv_id) = &conversation_id {
-        let db_path = default_db_path();
+        let db_path = resolve_db_path();
         if let Ok(conn) = open_or_create_db(&db_path) {
             let now = now_iso8601_utc();
             let _ = conn.execute(

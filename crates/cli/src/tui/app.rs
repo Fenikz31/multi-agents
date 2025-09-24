@@ -23,6 +23,10 @@ use ratatui::Terminal;
 use super::state::{StateManager, StateTransition};
 use super::TuiError;
 use super::themes::{Theme, ThemeKind, Typography, default_typography, compact_typography, high_density_typography};
+use crate::utils::db_path::resolve_db_path;
+use crate::utils::resolve_config_paths;
+use config_model::parse_project_yaml;
+use db::sync_project_from_config;
 
 /// TUI App using ratatui/crossterm
 pub struct TuiRuntime {
@@ -49,15 +53,79 @@ impl TuiRuntime {
     fn initialize_states(&mut self) -> Result<(), Box<dyn Error>> {
         // Add initial states
         self.state_manager.add_state("help".to_string(), Box::new(super::state::navigation_state::HelpState::new()));
-        self.state_manager.add_state("project_select".to_string(), Box::new(super::state::navigation_state::ProjectSelectState::new()));
+        let mut project_select = super::state::navigation_state::ProjectSelectState::new();
+        
+        // Resolve DB path (XDG/MULTI_AGENTS_* aware)
+        let db_path = resolve_db_path();
+        eprintln!("[TUI] DB path resolved: {}", db_path);
+        
+        // Load projects from database
+        match project_select.load_from_db(&db_path) {
+            Ok(_) => eprintln!("[TUI] Loaded {} projects from DB", project_select.projects.len()),
+            Err(e) => eprintln!("[TUI] Failed to load projects from DB: {}", e),
+        }
+        
+        // If no projects in DB, try to auto-seed from config (best-effort)
+        if project_select.projects.is_empty() {
+            eprintln!("[TUI] No projects found in DB, attempting auto-seed from config...");
+            
+            match resolve_config_paths(None, None) {
+                Ok((project_yaml_path, providers_yaml_path)) => {
+                    eprintln!("[TUI] Config paths resolved:");
+                    eprintln!("  - Project: {}", project_yaml_path);
+                    eprintln!("  - Providers: {}", providers_yaml_path);
+                    
+                    match std::fs::read_to_string(&project_yaml_path) {
+                        Ok(contents) => {
+                            eprintln!("[TUI] Successfully read project.yaml ({} bytes)", contents.len());
+                            
+                            match parse_project_yaml(&contents) {
+                                Ok(project_cfg) => {
+                                    eprintln!("[TUI] Successfully parsed project.yaml:");
+                                    eprintln!("  - Project name: {}", project_cfg.project);
+                                    eprintln!("  - Agents: {}", project_cfg.agents.len());
+                                    
+                                    match db::open_or_create_db(&db_path) {
+                                        Ok(conn) => {
+                                            eprintln!("[TUI] DB connection established");
+                                            
+                                            match sync_project_from_config(&conn, &project_cfg) {
+                                                Ok(_) => {
+                                                    eprintln!("[TUI] Successfully synced project config to DB");
+                                                    
+                                                    match project_select.load_from_db(&db_path) {
+                                                        Ok(_) => eprintln!("[TUI] Reloaded {} projects after sync", project_select.projects.len()),
+                                                        Err(e) => eprintln!("[TUI] Failed to reload projects after sync: {}", e),
+                                                    }
+                                                }
+                                                Err(e) => eprintln!("[TUI] Failed to sync project config to DB: {}", e),
+                                            }
+                                        }
+                                        Err(e) => eprintln!("[TUI] Failed to open/create DB: {}", e),
+                                    }
+                                }
+                                Err(e) => eprintln!("[TUI] Failed to parse project.yaml: {}", e),
+                            }
+                        }
+                        Err(e) => eprintln!("[TUI] Failed to read project.yaml: {}", e),
+                    }
+                }
+                Err(e) => eprintln!("[TUI] Failed to resolve config paths: {}", e),
+            }
+        } else {
+            eprintln!("[TUI] Found existing projects in DB, skipping auto-seed");
+        }
+        
+        self.state_manager.add_state("project_select".to_string(), Box::new(project_select));
         let mut kanban = super::state::view_state::KanbanState::new();
         // Best-effort load from default DB and first project (to be refined later)
-        let _ = kanban.load_from_db("./data/multi-agents.sqlite3", "default-project");
+        let _ = kanban.load_from_db(&db_path, "default-project");
         self.state_manager.add_state("kanban".to_string(), Box::new(kanban));
         self.state_manager.add_state("sessions".to_string(), Box::new(super::state::view_state::SessionsState::new()));
 
         // Initial state
         self.state_manager.set_current_state("project_select".to_string())?;
+        eprintln!("[TUI] Initialization complete, starting in project_select state");
         Ok(())
     }
 
@@ -145,6 +213,10 @@ impl TuiRuntime {
                                     self.process_input("s")?;
                                     self.prefix_g = false;
                                 }
+                                KeyCode::Char('n') => {
+                                    self.process_input("n")?;
+                                    self.prefix_g = false;
+                                }
                                 KeyCode::Up => { self.process_input("up")?; }
                                 KeyCode::Down => { self.process_input("down")?; }
                                 KeyCode::Left => { self.process_input("left")?; }
@@ -221,3 +293,4 @@ impl Drop for TerminalGuard {
         let _ = execute!(&mut stdout, Show, LeaveAlternateScreen);
     }
 }
+

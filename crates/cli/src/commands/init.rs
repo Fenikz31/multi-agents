@@ -4,7 +4,7 @@ use std::fs;
 use std::path::Path;
 use config_model::parse_project_yaml;
 use db::{open_or_create_db, sync_project_from_config};
-use crate::utils::default_db_path;
+use crate::utils::resolve_db_path;
 use crate::utils::errors::exit_with;
 
 /// Run project initialization command
@@ -16,7 +16,7 @@ pub fn run_init(config_dir: Option<&str>, force: bool, skip_db: bool) -> Result<
     // 1. Initialize database (if not skipped)
     if !skip_db {
         println!("📊 Initializing database...");
-        let db_path = default_db_path();
+        let db_path = resolve_db_path();
         match open_or_create_db(&db_path) {
             Ok(_) => println!("✅ Database initialized"),
             Err(e) => return exit_with(7, format!("Database initialization failed: {}", e)),
@@ -92,7 +92,7 @@ providers:
     
     // 3. Synchronize project and agents to database
     println!("🔄 Synchronizing project and agents...");
-    let db_path = default_db_path();
+    let db_path = resolve_db_path();
     let conn = open_or_create_db(&db_path)?;
     
     let proj_s = fs::read_to_string(&proj_path)?;
