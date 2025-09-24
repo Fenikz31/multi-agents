@@ -36,5 +36,8 @@ Thumbs.db
 
 # Misc
 coverage/
+*.profraw
+*.profdata
+target/llvm-cov-target/
 config/backup-*
 .reports/

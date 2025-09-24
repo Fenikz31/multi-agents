@@ -10,5 +10,8 @@ pub mod tmux_tests;
 pub mod broadcast_tests;
 pub mod performance_tests;
 pub mod tui_integration_tests;
+pub mod tui_performance_tests;
+pub mod tui_compatibility_tests;
+pub mod tui_regression_tests;
 
 // Re-export all integration tests

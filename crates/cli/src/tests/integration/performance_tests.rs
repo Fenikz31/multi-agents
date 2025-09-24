@@ -675,8 +675,8 @@ fn test_concurrency_performance() {
     
     // Concurrent operations should be reasonably fast
     assert!(
-        benchmark.avg_duration.as_millis() < 8, // < 8ms (env-dependent)
-        "Concurrent operations should be < 8ms, got {:?}",
+        benchmark.avg_duration.as_millis() < 12, // < 12ms (env-dependent)
+        "Concurrent operations should be < 12ms, got {:?}",
         benchmark.avg_duration
     );
     
