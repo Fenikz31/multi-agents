@@ -11,6 +11,13 @@
 - Store (SQLite): projects, agents, sessions, messages, tasks, broadcasts.
 - TUI (ratatui): Kanban board, sessions list, session detail (NDJSON tail).
 
+See also:
+- CLI Reference: [docs/cli-reference.md](cli-reference.md)
+- TUI User Guide: [docs/tui/user-guide.md](tui/user-guide.md)
+- TUI Tutorials: [docs/tui/tutorials.md](tui/tutorials.md)
+- TUI Contextual Help: [docs/tui/contextual-help.md](tui/contextual-help.md)
+- TUI Advanced Examples: [docs/tui/advanced-examples.md](tui/advanced-examples.md)
+
 ## Architecture
 
 The CLI has been organized into a modular architecture:
