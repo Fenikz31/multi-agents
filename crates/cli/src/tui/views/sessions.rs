@@ -13,7 +13,7 @@ use crate::tui::state::view_state::SessionsState;
 pub fn render_sessions_view(
     f: &mut ratatui::Frame,
     area: Rect,
-    sessions_state: &SessionsState,
+    sessions_state: &mut SessionsState,
     theme: &ThemePalette,
     typography: &Typography,
 ) {

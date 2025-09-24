@@ -31,12 +31,15 @@ pub struct TuiRuntime {
     current_theme: ThemeKind,
     prefix_g: bool,
     current_mode: DisplayMode,
+    last_output: String,
+    last_draw: Instant,
+    spinner_idx: usize,
 }
 
 impl TuiRuntime {
     /// Create a new runtime with a default tick of 200ms
     pub fn new(state_manager: StateManager) -> Self {
-        Self { state_manager, tick_rate: Duration::from_millis(200), running: true, current_theme: ThemeKind::Dark, prefix_g: false, current_mode: DisplayMode::Normal }
+        Self { state_manager, tick_rate: Duration::from_millis(200), running: true, current_theme: ThemeKind::Dark, prefix_g: false, current_mode: DisplayMode::Normal, last_output: String::new(), last_draw: Instant::now(), spinner_idx: 0 }
     }
 
     /// Initialize app states and set initial state
@@ -72,9 +75,18 @@ impl TuiRuntime {
 
         let res = (|| -> Result<(), Box<dyn Error>> {
             while self.running {
-                // Render current state as text for now
+                // Render current state only if content changed or a full second passed (keep ≤5Hz)
                 let output = self.state_manager.render()?;
-                terminal.draw(|f| {
+                // Redraw if content changed or at most 5Hz for spinner/animations
+                let should_redraw = output != self.last_output || self.last_draw.elapsed() >= Duration::from_millis(200);
+                if should_redraw {
+                    self.last_output = output.clone();
+                    self.last_draw = Instant::now();
+                    // advance spinner frame
+                    self.spinner_idx = (self.spinner_idx + 1) % 4;
+                }
+                if should_redraw {
+                    terminal.draw(|f| {
                     let size = f.area();
                     let chunks = Layout::default()
                         .direction(Direction::Vertical)
@@ -89,10 +101,12 @@ impl TuiRuntime {
                         DisplayMode::HighDensity => high_density_typography(&base_palette),
                     };
                     let theme = Theme::with_typography(self.current_theme, typography);
-                    let block = Block::default().title(Line::from(vec![Span::raw("Multi-Agents TUI")])).borders(Borders::ALL);
+                    let spinner = match self.spinner_idx { 0 => "|", 1 => "/", 2 => "-", _ => "\\" };
+                    let block = Block::default().title(Line::from(vec![Span::raw(format!("Multi-Agents TUI {}", spinner))])).borders(Borders::ALL);
                     let para = Paragraph::new(output).block(block).style(theme.type_scale.body);
                     f.render_widget(para, chunks[0]);
-                })?;
+                    })?;
+                }
 
                 let timeout = tick_rate.saturating_sub(last_tick.elapsed());
                 if event::poll(timeout)? {
