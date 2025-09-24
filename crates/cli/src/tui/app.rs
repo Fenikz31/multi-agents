@@ -151,6 +151,10 @@ impl TuiRuntime {
                                     self.process_input("s")?;
                                     self.prefix_g = false;
                                 }
+                                KeyCode::Char('n') => {
+                                    self.process_input("n")?;
+                                    self.prefix_g = false;
+                                }
                                 KeyCode::Up => { self.process_input("up")?; }
                                 KeyCode::Down => { self.process_input("down")?; }
                                 KeyCode::Left => { self.process_input("left")?; }
