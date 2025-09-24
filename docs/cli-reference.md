@@ -601,6 +601,10 @@ multi-agents tui --project demo
 multi-agents tui --project demo --refresh-rate 150
 ```
 
+See also:
+- TUI User Guide: [docs/tui/user-guide.md](tui/user-guide.md)
+- TUI Tutorials: [docs/tui/tutorials.md](tui/tutorials.md)
+
 **Mock Screenshots:**
 
 ```text
