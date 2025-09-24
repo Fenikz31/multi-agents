@@ -150,6 +150,54 @@ impl ProjectSelectState {
         }
     }
     
+    /// Load projects from database
+    pub fn load_from_db(&mut self, db_path: &str) -> Result<(), Box<dyn Error>> {
+        use db::open_or_create_db;
+        
+        let conn = open_or_create_db(db_path)?;
+        
+        // Get all projects directly from database
+        let mut stmt = conn.prepare("SELECT id, name, created_at FROM projects ORDER BY created_at DESC")?;
+        let project_iter = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
+        })?;
+        
+        // Convert to ProjectItem format
+        self.projects = Vec::new();
+        for project in project_iter {
+            let (id, name, created_at) = project?;
+            
+            // Count agents for this project
+            let agent_count: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM agents WHERE project_id = ?1",
+                [&id],
+                |row| row.get(0)
+            ).unwrap_or(0);
+            
+            // Count sessions for this project
+            let session_count: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM sessions WHERE project_id = ?1",
+                [&id],
+                |row| row.get(0)
+            ).unwrap_or(0);
+            
+            self.projects.push(ProjectItem {
+                id,
+                name,
+                agent_count: agent_count as usize,
+                session_count: session_count as usize,
+                last_activity: created_at,
+            });
+        }
+        
+        // Select first project if available
+        if !self.projects.is_empty() {
+            self.selected_project = Some(0);
+        }
+        
+        Ok(())
+    }
+    
     /// Add project
     pub fn add_project(&mut self, project: ProjectItem) {
         self.projects.push(project);
@@ -217,7 +265,29 @@ impl TuiState for ProjectSelectState {
                 }
             }
             "n" | "new" => {
-                Ok(StateTransition::Error("Create project not implemented yet".to_string()))
+                // Create a new project in the database, then reload list
+                use db::open_or_create_db;
+                use crate::utils::resolve_db_path;
+                use db::insert_project;
+
+                let db_path = resolve_db_path();
+                match open_or_create_db(&db_path) {
+                    Ok(conn) => {
+                        let default_name = format!("New Project {}", chrono::Utc::now().timestamp());
+                        match insert_project(&conn, &default_name) {
+                            Ok(p) => {
+                                // Reload projects and select the newly created one
+                                let _ = self.load_from_db(&db_path);
+                                if let Some(idx) = self.projects.iter().position(|pr| pr.id == p.id) {
+                                    self.selected_project = Some(idx);
+                                }
+                                Ok(StateTransition::Stay)
+                            }
+                            Err(e) => Ok(StateTransition::Error(format!("Failed to create project: {}", e))),
+                        }
+                    }
+                    Err(e) => Ok(StateTransition::Error(format!("DB open failed: {}", e)))
+                }
             }
             _ => {
                 self.filter = input.to_string();

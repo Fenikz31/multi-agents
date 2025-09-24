@@ -23,6 +23,7 @@ use ratatui::Terminal;
 use super::state::{StateManager, StateTransition};
 use super::TuiError;
 use super::themes::{Theme, ThemeKind, Typography, default_typography, compact_typography, high_density_typography};
+use crate::utils::db_path::resolve_db_path;
 
 /// TUI App using ratatui/crossterm
 pub struct TuiRuntime {
@@ -49,10 +50,15 @@ impl TuiRuntime {
     fn initialize_states(&mut self) -> Result<(), Box<dyn Error>> {
         // Add initial states
         self.state_manager.add_state("help".to_string(), Box::new(super::state::navigation_state::HelpState::new()));
-        self.state_manager.add_state("project_select".to_string(), Box::new(super::state::navigation_state::ProjectSelectState::new()));
+        let mut project_select = super::state::navigation_state::ProjectSelectState::new();
+        // Resolve DB path (XDG/MULTI_AGENTS_* aware)
+        let db_path = resolve_db_path();
+        // Load projects from database
+        let _ = project_select.load_from_db(&db_path);
+        self.state_manager.add_state("project_select".to_string(), Box::new(project_select));
         let mut kanban = super::state::view_state::KanbanState::new();
         // Best-effort load from default DB and first project (to be refined later)
-        let _ = kanban.load_from_db("./data/multi-agents.sqlite3", "default-project");
+        let _ = kanban.load_from_db(&db_path, "default-project");
         self.state_manager.add_state("kanban".to_string(), Box::new(kanban));
         self.state_manager.add_state("sessions".to_string(), Box::new(super::state::view_state::SessionsState::new()));
 
@@ -221,3 +227,4 @@ impl Drop for TerminalGuard {
         let _ = execute!(&mut stdout, Show, LeaveAlternateScreen);
     }
 }
+
