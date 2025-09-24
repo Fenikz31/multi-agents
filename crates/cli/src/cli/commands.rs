@@ -87,6 +87,13 @@ pub enum Commands {
         /// Optional: write output to file
         #[arg(long, value_name = "PATH")] output: Option<String>,
     },
+    /// Launch the TUI
+    Tui {
+        /// Project id or name (defaults to current directory name)
+        #[arg(long)] project: Option<String>,
+        /// Refresh rate in ms (default: 200)
+        #[arg(long, value_name = "MILLIS")] refresh_rate: Option<u64>,
+    },
 }
 
 #[derive(Subcommand, Debug)]

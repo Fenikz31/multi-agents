@@ -554,23 +554,28 @@ multi-agents broadcast repl --project demo --to @all --message "Status report" -
 
 ### TUI & Context
 
-#### `multi-agents tui --project <name>`
+#### `multi-agents tui --project <name> [--refresh-rate <millis>]`
 Launches terminal user interface.
 
-**Required Flags:**
-- `--project <name>`: Project name
+**Options:**
+- `--project <name>`: Project name (defaults to current directory name)
+- `--refresh-rate <millis>`: Refresh rate in milliseconds (default: 200)
 
 **Behavior:**
 - Kanban board (ToDo/Doing/Done)
 - Sessions list and detail views
 - NDJSON log tail
-- ≤5 Hz refresh rate
-- Clean terminal exit
+- ≤5 Hz refresh rate (configurable via `--refresh-rate`)
+- Clean terminal exit and terminal restoration (alt screen, raw mode)
+- Ctrl+C exits gracefully
 
 **Examples:**
 ```bash
 # Launch TUI for demo project
 multi-agents tui --project demo
+
+# Launch TUI with custom refresh rate
+multi-agents tui --project demo --refresh-rate 150
 ```
 
 #### `multi-agents context git --status|--diff|--log`

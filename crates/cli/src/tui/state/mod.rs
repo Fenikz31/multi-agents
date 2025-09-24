@@ -58,6 +58,13 @@ impl StateManager {
             states: std::collections::HashMap::new(),
         }
     }
+    /// Create with pre-selected project id
+    pub fn new_with_project(selected: Option<String>) -> Self {
+        if let Some(pid) = selected {
+            selection_store::set_project_id(pid);
+        }
+        Self::new()
+    }
     
     /// Add a state to the manager
     pub fn add_state(&mut self, name: String, state: Box<dyn TuiState>) {

@@ -9,9 +9,10 @@ use std::error::Error;
 use std::io;
 use std::time::{Duration, Instant};
 
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::{execute};
+use crossterm::cursor::{Show};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout};
 // use ratatui::style::{Style};
@@ -41,6 +42,8 @@ impl TuiRuntime {
     pub fn new(state_manager: StateManager) -> Self {
         Self { state_manager, tick_rate: Duration::from_millis(200), running: true, current_theme: ThemeKind::Dark, prefix_g: false, current_mode: DisplayMode::Normal, last_output: String::new(), last_draw: Instant::now(), spinner_idx: 0 }
     }
+    /// Adjust tick rate
+    pub fn set_tick_rate(&mut self, d: Duration) { self.tick_rate = d; }
 
     /// Initialize app states and set initial state
     fn initialize_states(&mut self) -> Result<(), Box<dyn Error>> {
@@ -66,6 +69,7 @@ impl TuiRuntime {
         enable_raw_mode().map_err(|e| TuiError::InputError(format!("enable_raw_mode: {}", e)))?;
         let mut stdout = io::stdout();
         execute!(&mut stdout, EnterAlternateScreen).map_err(|e| TuiError::RenderError(format!("enter alt screen: {}", e)))?;
+        let _guard = TerminalGuard; // ensure clean restore on early exit
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend).map_err(|e| TuiError::RenderError(format!("terminal: {}", e)))?;
         terminal.hide_cursor().ok();
@@ -113,6 +117,10 @@ impl TuiRuntime {
                     if let Event::Key(key) = event::read()? {
                         if key.kind == KeyEventKind::Press {
                             match key.code {
+                                KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                                    // Graceful exit on Ctrl+C
+                                    self.running = false;
+                                }
                                 KeyCode::Char('q') => {
                                     self.running = false;
                                 }
@@ -201,3 +209,15 @@ impl TuiRuntime {
 enum DisplayMode { Normal, Compact, HighDensity }
 
 
+
+/// RAII guard to restore terminal state even on early returns/panics
+struct TerminalGuard;
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        // Best-effort restoration; ignore errors
+        let _ = disable_raw_mode();
+        let mut stdout = io::stdout();
+        let _ = execute!(&mut stdout, Show, LeaveAlternateScreen);
+    }
+}
