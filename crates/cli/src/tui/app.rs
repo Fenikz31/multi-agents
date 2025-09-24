@@ -24,6 +24,9 @@ use super::state::{StateManager, StateTransition};
 use super::TuiError;
 use super::themes::{Theme, ThemeKind, Typography, default_typography, compact_typography, high_density_typography};
 use crate::utils::db_path::resolve_db_path;
+use crate::utils::resolve_config_paths;
+use config_model::parse_project_yaml;
+use db::sync_project_from_config;
 
 /// TUI App using ratatui/crossterm
 pub struct TuiRuntime {
@@ -55,6 +58,19 @@ impl TuiRuntime {
         let db_path = resolve_db_path();
         // Load projects from database
         let _ = project_select.load_from_db(&db_path);
+        // If no projects in DB, try to auto-seed from config (best-effort)
+        if project_select.projects.is_empty() {
+            if let Ok((project_yaml_path, _providers_yaml_path)) = resolve_config_paths(None, None) {
+                if let Ok(contents) = std::fs::read_to_string(&project_yaml_path) {
+                    if let Ok(project_cfg) = parse_project_yaml(&contents) {
+                        if let Ok(conn) = db::open_or_create_db(&db_path) {
+                            let _ = sync_project_from_config(&conn, &project_cfg);
+                            let _ = project_select.load_from_db(&db_path);
+                        }
+                    }
+                }
+            }
+        }
         self.state_manager.add_state("project_select".to_string(), Box::new(project_select));
         let mut kanban = super::state::view_state::KanbanState::new();
         // Best-effort load from default DB and first project (to be refined later)
