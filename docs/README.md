@@ -1,3 +1,14 @@
+## Documentation — Table des Matières
+
+- Overview: [overview.md](overview.md)
+- CLI Reference: [cli-reference.md](cli-reference.md)
+- TUI Docs: [tui/README.md](tui/README.md)
+  - User Guide: [tui/user-guide.md](tui/user-guide.md)
+  - Tutorials: [tui/tutorials.md](tui/tutorials.md)
+  - Contextual Help: [tui/contextual-help.md](tui/contextual-help.md)
+  - Advanced Examples: [tui/advanced-examples.md](tui/advanced-examples.md)
+  - Demo Videos: [tui/demo-videos.md](tui/demo-videos.md)
+
 # Multi-Agents CLI — Documentation
 
 This documentation describes the design, roadmap, and usage of the Multi-Agents CLI that orchestrates Gemini CLI, Claude Code, and Cursor Agent using tmux. It focuses on CLI-only integrations, YAML role configuration, tool allowlists, NDJSON logging, broadcast functionality, and a concurrency limit of 3.
