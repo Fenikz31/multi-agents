@@ -569,6 +569,29 @@ Launches terminal user interface.
 - Clean terminal exit and terminal restoration (alt screen, raw mode)
 - Ctrl+C exits gracefully
 
+**Keyboard Shortcuts:**
+- `q`: Quit
+- `Ctrl+C`: Quit (graceful)
+- `g` + `T`: Cycle theme (Light → Dark → HighContrast)
+- `g` + `M`: Cycle display mode (Normal → Compact → HighDensity)
+- `h`: Help state
+- `k`: Kanban state
+- `s`: Sessions state
+- Arrow keys/PageUp/PageDown/Home/End: Navigation in lists/columns
+- `Tab` / `Shift+Tab`: Focus navigation
+- `Enter`: Select/Activate
+
+**Exit Codes (TUI):**
+- `0`: OK
+- `1`: Generic error
+- `5`: Timeout detected
+- `7`: Database error (SQLite)
+
+**Troubleshooting:**
+- Terminal not restored properly: rerun any command like `reset` or start TUI again; restoration is handled automatically via RAII guard.
+- Slow rendering on large datasets: increase `--refresh-rate` (e.g., `--refresh-rate 300`) to reduce redraw frequency.
+- DB errors: initialize DB with `multi-agents db init`; verify file permissions under `./data/`.
+
 **Examples:**
 ```bash
 # Launch TUI for demo project
@@ -576,6 +599,55 @@ multi-agents tui --project demo
 
 # Launch TUI with custom refresh rate
 multi-agents tui --project demo --refresh-rate 150
+```
+
+**Mock Screenshots:**
+
+```text
++--------------------- Multi-Agents TUI | Kanban ---------------------+
+|  To Do             |  Doing             |  Done                      |
+|  [ ] Task A        |  [*] Task C        |  [x] Task D                |
+|  [ ] Task B        |                    |                             |
++---------------------------------------------------------------------+
+| gT:Theme gM:Mode  h:Help  k:Kanban  s:Sessions   q/Ctrl+C:Quit       |
++---------------------------------------------------------------------+
+```
+
+```text
++-------------------- Multi-Agents TUI | Sessions --------------------+
+| id         agent     provider  status     duration                   |
+| s_01       backend   claude    running    00:02:31                  |
+| s_02       frontend  gemini    completed  00:05:10                  |
++---------------------------------------------------------------------+
+| ↑↓/PgUp/PgDn navigate • Enter select • h help • q quit              |
++---------------------------------------------------------------------+
+```
+
+**Real Screenshots:**
+
+![Kanban View](images/tui/kanban.png)
+
+![Sessions View](images/tui/sessions.png)
+
+**Quick Start:**
+
+```bash
+# 1) Environment check
+multi-agents doctor
+
+# 2) Initialize configuration and database
+multi-agents config init
+multi-agents db init
+
+# 3) Create project and a couple of agents
+multi-agents project add --name demo
+multi-agents agent add --project demo --name backend --role backend --provider claude --model claude-3-5-sonnet-20241022 --system-prompt "Backend role"
+multi-agents agent add --project demo --name frontend --role frontend --provider gemini --model gemini-1.5-pro --system-prompt "Frontend role"
+
+# 4) Launch the TUI (Dark theme by default, 200ms refresh)
+multi-agents tui --project demo
+
+# Tips: press gT to cycle theme, gM to change density, h for help
 ```
 
 #### `multi-agents context git --status|--diff|--log`
