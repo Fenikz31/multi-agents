@@ -569,6 +569,29 @@ Launches terminal user interface.
 - Clean terminal exit and terminal restoration (alt screen, raw mode)
 - Ctrl+C exits gracefully
 
+**Keyboard Shortcuts:**
+- `q`: Quit
+- `Ctrl+C`: Quit (graceful)
+- `g` + `T`: Cycle theme (Light → Dark → HighContrast)
+- `g` + `M`: Cycle display mode (Normal → Compact → HighDensity)
+- `h`: Help state
+- `k`: Kanban state
+- `s`: Sessions state
+- Arrow keys/PageUp/PageDown/Home/End: Navigation in lists/columns
+- `Tab` / `Shift+Tab`: Focus navigation
+- `Enter`: Select/Activate
+
+**Exit Codes (TUI):**
+- `0`: OK
+- `1`: Generic error
+- `5`: Timeout detected
+- `7`: Database error (SQLite)
+
+**Troubleshooting:**
+- Terminal not restored properly: rerun any command like `reset` or start TUI again; restoration is handled automatically via RAII guard.
+- Slow rendering on large datasets: increase `--refresh-rate` (e.g., `--refresh-rate 300`) to reduce redraw frequency.
+- DB errors: initialize DB with `multi-agents db init`; verify file permissions under `./data/`.
+
 **Examples:**
 ```bash
 # Launch TUI for demo project
