@@ -14,6 +14,11 @@ pub struct KanbanState {
     pub selected_column: usize,
     pub selected_task: Option<usize>,
     pub filter: String,
+    // cache
+    cached_columns: Option<Box<[KanbanColumn]>>,
+    // simple pagination for visible tasks in current column
+    pub col_page_size: usize,
+    pub col_page_index: usize,
 }
 
 /// Task item for Kanban
@@ -42,6 +47,9 @@ impl KanbanState {
             selected_column: 0,
             selected_task: None,
             filter: String::new(),
+            cached_columns: None,
+            col_page_size: 50,
+            col_page_index: 0,
         }
     }
 
@@ -57,52 +65,53 @@ impl KanbanState {
             assignee: None,
             priority: "medium".to_string(),
         }).collect();
+        self.cached_columns = None; // invalidate cache
+        self.ensure_columns_cache();
         Ok(())
     }
-    
-    /// Get columns
-    pub fn get_columns(&self) -> Vec<KanbanColumn> {
+
+    fn build_columns(&self) -> Vec<KanbanColumn> {
         let mut columns = vec![
-            KanbanColumn {
-                name: "To Do".to_string(),
-                status: "todo".to_string(),
-                tasks: Vec::new(),
-            },
-            KanbanColumn {
-                name: "Doing".to_string(),
-                status: "doing".to_string(),
-                tasks: Vec::new(),
-            },
-            KanbanColumn {
-                name: "Done".to_string(),
-                status: "done".to_string(),
-                tasks: Vec::new(),
-            },
+            KanbanColumn { name: "To Do".to_string(), status: "todo".to_string(), tasks: Vec::new() },
+            KanbanColumn { name: "Doing".to_string(), status: "doing".to_string(), tasks: Vec::new() },
+            KanbanColumn { name: "Done".to_string(), status: "done".to_string(), tasks: Vec::new() },
         ];
-        
-        // Filter tasks by status
         for task in &self.tasks {
             if self.filter.is_empty() || task.title.to_lowercase().contains(&self.filter.to_lowercase()) {
                 for column in &mut columns {
-                    // Treat legacy/in-flight statuses as aliases
-                    let task_status = match task.status.as_str() {
-                        "in_progress" => "doing",
-                        other => other,
-                    };
-                    if column.status == task_status {
-                        column.tasks.push(task.clone());
-                    }
+                    let task_status = match task.status.as_str() { "in_progress" => "doing", other => other };
+                    if column.status == task_status { column.tasks.push(task.clone()); }
                 }
             }
         }
-        
         columns
+    }
+
+    fn ensure_columns_cache(&mut self) {
+        let columns = self.build_columns();
+        self.cached_columns = Some(columns.into_boxed_slice());
+    }
+
+    /// Get columns
+    pub fn get_columns(&self) -> Vec<KanbanColumn> {
+        if let Some(cols) = &self.cached_columns { return cols.to_vec(); }
+        let mut columns = self.build_columns();
+        // Apply simple pagination on the selected column
+        let mut columns_paginated = columns.clone();
+        if let Some(col) = columns_paginated.get_mut(self.selected_column) {
+            let start = self.col_page_index.saturating_mul(self.col_page_size);
+            let end = (start + self.col_page_size).min(col.tasks.len());
+            if start < end { col.tasks = col.tasks[start..end].to_vec(); } else { col.tasks.clear(); }
+        }
+        columns_paginated
     }
     
     /// Move task to different status
     pub fn move_task(&mut self, task_id: &str, new_status: &str) -> Result<(), Box<dyn Error>> {
         if let Some(task) = self.tasks.iter_mut().find(|t| t.id == task_id) {
             task.status = new_status.to_string();
+            self.cached_columns = None; // invalidate cache
+            self.ensure_columns_cache();
             Ok(())
         } else {
             Err(format!("Task with ID '{}' not found", task_id).into())
@@ -119,6 +128,8 @@ impl KanbanState {
             priority: "medium".to_string(),
         };
         self.tasks.push(task);
+        self.cached_columns = None; // invalidate cache
+        self.ensure_columns_cache();
     }
 }
 
@@ -350,6 +361,11 @@ pub struct SessionsState {
     pub selected_session: Option<usize>,
     pub filter: String,
     pub sort_by_agent: bool,
+    // caching & lazy display
+    cache_filter: String,
+    cache_sort_by_agent: bool,
+    cache_indices: Option<Vec<usize>>, // indices into sessions matching current filter/sort
+    page_size: usize,
 }
 
 /// Session item for Sessions view
@@ -371,6 +387,10 @@ impl SessionsState {
             selected_session: None,
             filter: String::new(),
             sort_by_agent: false,
+            cache_filter: String::new(),
+            cache_sort_by_agent: false,
+            cache_indices: None,
+            page_size: 200,
         }
     }
     /// Load sessions from SQLite
@@ -404,30 +424,43 @@ impl SessionsState {
         for (id, agent_id, provider, status, created_at) in collected.into_iter() {
             self.sessions.push(SessionItem { id, agent_name: agent_id, role: String::new(), provider, status, duration: created_at });
         }
+        // Invalidate cache on data reload
+        self.cache_indices = None;
         Ok(())
     }
     
     /// Add session
     pub fn add_session(&mut self, session: SessionItem) {
         self.sessions.push(session);
+        self.cache_indices = None; // invalidate cache
     }
     
     /// Get filtered sessions
     pub fn get_filtered_sessions(&self) -> Vec<&SessionItem> {
-        let mut v: Vec<&SessionItem> = if self.filter.is_empty() {
-            self.sessions.iter().collect()
+        // Prefer cached indices when valid
+        if let Some(indices) = &self.cache_indices {
+            if self.cache_filter == self.filter && self.cache_sort_by_agent == self.sort_by_agent {
+                return indices.iter().take(self.page_size).map(|&i| &self.sessions[i]).collect();
+            }
+        }
+        // Fallback compute without mutating state
+        let mut idx: Vec<usize> = if self.filter.is_empty() {
+            (0..self.sessions.len()).collect()
         } else {
-            self.sessions.iter()
-                .filter(|s| s.agent_name.to_lowercase().contains(&self.filter.to_lowercase()) ||
-                           s.role.to_lowercase().contains(&self.filter.to_lowercase()))
+            let fl = self.filter.to_lowercase();
+            self.sessions
+                .iter()
+                .enumerate()
+                .filter(|(_, s)| s.agent_name.to_lowercase().contains(&fl) || s.role.to_lowercase().contains(&fl))
+                .map(|(i, _)| i)
                 .collect()
         };
         if self.sort_by_agent {
-            v.sort_by(|a, b| a.agent_name.cmp(&b.agent_name));
+            idx.sort_by(|&ia, &ib| self.sessions[ia].agent_name.cmp(&self.sessions[ib].agent_name));
         } else {
-            v.sort_by(|a, b| b.duration.cmp(&a.duration));
+            idx.sort_by(|&ia, &ib| self.sessions[ib].duration.cmp(&self.sessions[ia].duration));
         }
-        v
+        idx.into_iter().take(self.page_size).map(|i| &self.sessions[i]).collect()
     }
 }
 
@@ -448,12 +481,12 @@ impl TuiState for SessionsState {
                 Ok(StateTransition::Stay)
             }
             "down" | "↓" => {
-                let filtered = self.get_filtered_sessions();
+                let len = self.get_filtered_sessions().len();
                 if let Some(selected) = self.selected_session {
-                    if selected < filtered.len() - 1 {
+                    if selected + 1 < len {
                         self.selected_session = Some(selected + 1);
                     }
-                } else if !filtered.is_empty() {
+                } else if len > 0 {
                     self.selected_session = Some(0);
                 }
                 Ok(StateTransition::Stay)
@@ -466,9 +499,9 @@ impl TuiState for SessionsState {
                 Ok(StateTransition::Stay)
             }
             "end" => {
-                let filtered = self.get_filtered_sessions();
-                if !filtered.is_empty() {
-                    self.selected_session = Some(filtered.len().saturating_sub(1));
+                let len = self.get_filtered_sessions().len();
+                if len > 0 {
+                    self.selected_session = Some(len.saturating_sub(1));
                 }
                 Ok(StateTransition::Stay)
             }
