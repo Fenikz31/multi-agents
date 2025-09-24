@@ -601,6 +601,51 @@ multi-agents tui --project demo
 multi-agents tui --project demo --refresh-rate 150
 ```
 
+**Mock Screenshots:**
+
+```text
++--------------------- Multi-Agents TUI | Kanban ---------------------+
+|  To Do             |  Doing             |  Done                      |
+|  [ ] Task A        |  [*] Task C        |  [x] Task D                |
+|  [ ] Task B        |                    |                             |
++---------------------------------------------------------------------+
+| gT:Theme gM:Mode  h:Help  k:Kanban  s:Sessions   q/Ctrl+C:Quit       |
++---------------------------------------------------------------------+
+```
+
+```text
++-------------------- Multi-Agents TUI | Sessions --------------------+
+| id         agent     provider  status     duration                   |
+| s_01       backend   claude    running    00:02:31                  |
+| s_02       frontend  gemini    completed  00:05:10                  |
++---------------------------------------------------------------------+
+| ↑↓/PgUp/PgDn navigate • Enter select • h help • q quit              |
++---------------------------------------------------------------------+
+```
+
+> For real screenshots, see `docs/images/tui/kanban.png` and `docs/images/tui/sessions.png` (to be added).
+
+**Quick Start:**
+
+```bash
+# 1) Environment check
+multi-agents doctor
+
+# 2) Initialize configuration and database
+multi-agents config init
+multi-agents db init
+
+# 3) Create project and a couple of agents
+multi-agents project add --name demo
+multi-agents agent add --project demo --name backend --role backend --provider claude --model claude-3-5-sonnet-20241022 --system-prompt "Backend role"
+multi-agents agent add --project demo --name frontend --role frontend --provider gemini --model gemini-1.5-pro --system-prompt "Frontend role"
+
+# 4) Launch the TUI (Dark theme by default, 200ms refresh)
+multi-agents tui --project demo
+
+# Tips: press gT to cycle theme, gM to change density, h for help
+```
+
 #### `multi-agents context git --status|--diff|--log`
 Collects Git context for injection into prompts.
 
