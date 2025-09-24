@@ -54,23 +54,68 @@ impl TuiRuntime {
         // Add initial states
         self.state_manager.add_state("help".to_string(), Box::new(super::state::navigation_state::HelpState::new()));
         let mut project_select = super::state::navigation_state::ProjectSelectState::new();
+        
         // Resolve DB path (XDG/MULTI_AGENTS_* aware)
         let db_path = resolve_db_path();
+        eprintln!("[TUI] DB path resolved: {}", db_path);
+        
         // Load projects from database
-        let _ = project_select.load_from_db(&db_path);
+        match project_select.load_from_db(&db_path) {
+            Ok(_) => eprintln!("[TUI] Loaded {} projects from DB", project_select.projects.len()),
+            Err(e) => eprintln!("[TUI] Failed to load projects from DB: {}", e),
+        }
+        
         // If no projects in DB, try to auto-seed from config (best-effort)
         if project_select.projects.is_empty() {
-            if let Ok((project_yaml_path, _providers_yaml_path)) = resolve_config_paths(None, None) {
-                if let Ok(contents) = std::fs::read_to_string(&project_yaml_path) {
-                    if let Ok(project_cfg) = parse_project_yaml(&contents) {
-                        if let Ok(conn) = db::open_or_create_db(&db_path) {
-                            let _ = sync_project_from_config(&conn, &project_cfg);
-                            let _ = project_select.load_from_db(&db_path);
+            eprintln!("[TUI] No projects found in DB, attempting auto-seed from config...");
+            
+            match resolve_config_paths(None, None) {
+                Ok((project_yaml_path, providers_yaml_path)) => {
+                    eprintln!("[TUI] Config paths resolved:");
+                    eprintln!("  - Project: {}", project_yaml_path);
+                    eprintln!("  - Providers: {}", providers_yaml_path);
+                    
+                    match std::fs::read_to_string(&project_yaml_path) {
+                        Ok(contents) => {
+                            eprintln!("[TUI] Successfully read project.yaml ({} bytes)", contents.len());
+                            
+                            match parse_project_yaml(&contents) {
+                                Ok(project_cfg) => {
+                                    eprintln!("[TUI] Successfully parsed project.yaml:");
+                                    eprintln!("  - Project name: {}", project_cfg.project);
+                                    eprintln!("  - Agents: {}", project_cfg.agents.len());
+                                    
+                                    match db::open_or_create_db(&db_path) {
+                                        Ok(conn) => {
+                                            eprintln!("[TUI] DB connection established");
+                                            
+                                            match sync_project_from_config(&conn, &project_cfg) {
+                                                Ok(_) => {
+                                                    eprintln!("[TUI] Successfully synced project config to DB");
+                                                    
+                                                    match project_select.load_from_db(&db_path) {
+                                                        Ok(_) => eprintln!("[TUI] Reloaded {} projects after sync", project_select.projects.len()),
+                                                        Err(e) => eprintln!("[TUI] Failed to reload projects after sync: {}", e),
+                                                    }
+                                                }
+                                                Err(e) => eprintln!("[TUI] Failed to sync project config to DB: {}", e),
+                                            }
+                                        }
+                                        Err(e) => eprintln!("[TUI] Failed to open/create DB: {}", e),
+                                    }
+                                }
+                                Err(e) => eprintln!("[TUI] Failed to parse project.yaml: {}", e),
+                            }
                         }
+                        Err(e) => eprintln!("[TUI] Failed to read project.yaml: {}", e),
                     }
                 }
+                Err(e) => eprintln!("[TUI] Failed to resolve config paths: {}", e),
             }
+        } else {
+            eprintln!("[TUI] Found existing projects in DB, skipping auto-seed");
         }
+        
         self.state_manager.add_state("project_select".to_string(), Box::new(project_select));
         let mut kanban = super::state::view_state::KanbanState::new();
         // Best-effort load from default DB and first project (to be refined later)
@@ -80,6 +125,7 @@ impl TuiRuntime {
 
         // Initial state
         self.state_manager.set_current_state("project_select".to_string())?;
+        eprintln!("[TUI] Initialization complete, starting in project_select state");
         Ok(())
     }
 
