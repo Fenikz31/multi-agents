@@ -47,50 +47,94 @@ pub fn run_send(
         Err(e) => return exit_with(7, format!("Failed to sync project: {}", e)),
     }
 
-    // Resolve targets with session support
+    // Resolve targets with session support and broadcast-like parsing
     let mut targets: Vec<&config_model::AgentConfig> = Vec::new();
     let mut session_contexts: Vec<Option<String>> = Vec::new();
-    
-    if to == "@all" {
-        targets.extend(project.agents.iter());
-        session_contexts.resize(targets.len(), None);
-    } else if to.starts_with('@') {
-        let role = &to[1..];
-        targets.extend(project.agents.iter().filter(|a| a.role == role));
-        session_contexts.resize(targets.len(), None);
-    } else {
-        // Check if 'to' is a conversation_id
+
+    // First, check if 'to' refers to an existing conversation/session id
+    let starts_with_at = to.starts_with('@');
+    let contains_comma = to.contains(',');
+    if !starts_with_at && !contains_comma {
         if let Some(session) = find_session(&conn, to)? {
-            // Find the agent for this session
-            if let Some(agent) = project.agents.iter().find(|a| {
-                // Get agent_id from database
-                match conn.query_row(
-                    "SELECT id FROM agents WHERE project_id = ?1 AND name = ?2",
-                    params![&session.project_id, &a.name],
-                    |row| Ok(row.get::<_, String>(0)?)
-                ) {
-                    Ok(agent_id) => agent_id == session.agent_id,
-                    Err(_) => false,
+            // Find matching agent by DB id -> agent name, then map to config
+            let agent_name: Option<String> = conn.query_row(
+                "SELECT name FROM agents WHERE id = ?1",
+                params![&session.agent_id],
+                |row| Ok(row.get::<_, String>(0)?)
+            ).ok();
+
+            if let Some(name) = agent_name {
+                if let Some(agent_cfg) = project.agents.iter().find(|a| a.name == name) {
+                    targets.push(agent_cfg);
+                    session_contexts.push(Some(to.to_string()));
+                } else {
+                    return exit_with(2, format!("send: session '{}' has no matching agent in config", to));
                 }
-            }) {
-                targets.push(agent);
-                session_contexts.push(Some(to.to_string()));
             } else {
-                return exit_with(2, format!("send: session '{}' has no matching agent", to));
+                return exit_with(2, format!("send: session '{}' has no matching agent in database", to));
             }
         } else {
-            // Try to find agent by name
+            // Fall back to direct agent name match
             if let Some(agent) = project.agents.iter().find(|a| a.name == to) {
                 targets.push(agent);
                 session_contexts.push(None);
             } else {
-                return exit_with(2, format!("send: no targets matched '{}'", to));
+                // Continue to broadcast-style parsing below for better error messages
             }
         }
     }
-    
-    if targets.is_empty() { 
-        return exit_with(2, format!("send: no targets matched '{}'", to)); 
+
+    if targets.is_empty() {
+        // Use broadcast target parsing for @all, @role and comma-separated agent lists
+        use crate::broadcast::targets::BroadcastTarget;
+
+        // Build DB-backed agent inventory to leverage existing resolver logic
+        // Determine project id
+        let project_name = &project.project;
+        let project_id = match find_project_id(&conn, IdOrName::Name(project_name))? {
+            Some(pid) => pid,
+            None => return exit_with(2, format!("Project not found: {}", project_name)),
+        };
+
+        // Load agents from DB
+        let mut stmt = conn.prepare("SELECT id, name, role, provider, model FROM agents WHERE project_id = ?1")?;
+        let db_agents: Vec<db::Agent> = stmt.query_map([&project_id], |row| {
+            Ok(db::Agent {
+                id: row.get(0)?,
+                project_id: project_id.clone(),
+                name: row.get(1)?,
+                role: row.get(2)?,
+                provider: row.get(3)?,
+                model: row.get(4)?,
+                system_prompt: String::new(),
+                allowed_tools: vec![],
+            })
+        })?.collect::<Result<Vec<_>, _>>()?;
+
+        // Parse and resolve target
+        let parsed = BroadcastTarget::from_str(to)
+            .map_err(|e| format!("Invalid target '{}': {}", to, e))
+            .map_err(|msg| std::io::Error::new(std::io::ErrorKind::Other, msg))?;
+
+        let agent_names = match parsed.resolve_agents(&db_agents) {
+            Ok(names) => names,
+            Err(e) => return exit_with(2, format!("send: {}", e)),
+        };
+
+        if agent_names.is_empty() {
+            return exit_with(2, format!("send: no targets matched '{}'", to));
+        }
+
+        for name in agent_names {
+            if let Some(agent_cfg) = project.agents.iter().find(|a| a.name == name) {
+                targets.push(agent_cfg);
+                session_contexts.push(None);
+            }
+        }
+    }
+
+    if targets.is_empty() {
+        return exit_with(2, format!("send: no targets matched '{}'", to));
     }
 
     // Auto-create session if conversation_id is absent, and fallback if status expired/invalid
