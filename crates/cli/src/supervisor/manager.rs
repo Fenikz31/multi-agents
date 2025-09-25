@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use crate::supervisor::subscription::Subscription;
+use crate::supervisor::metrics::{self, RoutedMetrics};
 
 /// Simple in-memory supervisor manager for subscriptions
 pub struct SupervisorManager {
@@ -25,6 +26,11 @@ impl SupervisorManager {
     pub fn unsubscribe(&mut self, id: &str) -> Result<(), String> {
         let _ = self.subscriptions.remove(id);
         Ok(())
+    }
+
+    /// Compute a routed summary from NDJSON lines (integration point for broadcast→supervisor)
+    pub fn routed_summary(lines: Vec<String>) -> Result<RoutedMetrics, Box<dyn std::error::Error>> {
+        metrics::compute_routed_metrics(lines)
     }
 }
 
