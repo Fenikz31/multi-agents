@@ -20,8 +20,14 @@ fn broadcast_to_multiple_roles_is_summarized_by_supervisor() {
 
     // Supervisor agrège sur les rôles
     let mut sub = crate::supervisor::subscription::SupervisorSubscription::new(project.to_string());
-    let lines = sub.aggregate_tail(vec![role_a.to_string(), role_b.to_string()], Some("routed".to_string()), 100).unwrap();
-    let summary = crate::supervisor::manager::routed_summary(lines).expect("summary");
+    let event_lines = sub.aggregate_tail(vec![role_a.to_string(), role_b.to_string()], Some("routed".to_string()), 100).unwrap();
+    
+    // Convert lines to NdjsonEvent for summary computation
+    let events: Vec<crate::logging::events::NdjsonEvent> = event_lines.iter()
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .collect();
+    
+    let summary = crate::supervisor::metrics::compute_routed_metrics_from_events(events).expect("summary");
 
     assert_eq!(summary.total, 2);
     assert!(summary.per_role.get(role_a).cloned().unwrap_or(0) >= 1);
