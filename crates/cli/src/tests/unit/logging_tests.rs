@@ -94,4 +94,49 @@ mod tests {
         assert_eq!(end_event.dur_ms, Some(1500));
         assert_eq!(end_event.text, Some("success".to_string()));
     }
+
+    #[test]
+    fn test_ndjson_event_routed_contains_ids() {
+        // Expect constructor NdjsonEvent::new_routed(project, role, agent, provider, broadcast_id, message_id)
+        let ev = crate::logging::events::NdjsonEvent::new_routed(
+            "demo",
+            "backend",
+            "backend1",
+            "claude",
+            Some("b-123".to_string()),
+            Some("m-456".to_string()),
+        );
+        assert_eq!(ev.event, "routed");
+        assert_eq!(ev.project_id, "demo");
+        assert_eq!(ev.agent_role, "backend");
+        assert_eq!(ev.agent_id, "backend1");
+        assert_eq!(ev.provider, "claude");
+        assert_eq!(ev.broadcast_id.as_deref(), Some("b-123"));
+        assert_eq!(ev.message_id.as_deref(), Some("m-456"));
+    }
+
+    #[test]
+    fn test_emit_routed_event_writes_line() {
+        // Expect helper emit_routed_event(project, role, agent, provider, broadcast_id, message_id)
+        let tmp = tempfile::tempdir().unwrap();
+        let log_dir = tmp.path().join("logs/demo");
+        std::fs::create_dir_all(&log_dir).unwrap();
+        // Temporarily override logs dir via env or by calling the function that writes to ./logs/{project}
+        // We simulate by running and then checking the file exists
+        let res = crate::logging::ndjson::emit_routed_event(
+            "demo",
+            "backend",
+            "backend1",
+            "claude",
+            Some("b-123"),
+            Some("m-456"),
+        );
+        assert!(res.is_ok());
+
+        let path = format!("./logs/{}/{}.ndjson", "demo", "backend");
+        let content = std::fs::read_to_string(path).unwrap();
+        assert!(content.contains("\"event\":\"routed\""));
+        assert!(content.contains("b-123"));
+        assert!(content.contains("m-456"));
+    }
 }
