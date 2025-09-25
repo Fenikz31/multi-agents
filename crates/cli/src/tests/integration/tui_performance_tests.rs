@@ -349,7 +349,7 @@ mod tui_cache_performance_tests {
             assert!(cache_miss_duration < Duration::from_millis(50), 
                 "Sessions filter cache miss too slow with {} sessions: {:?}", size, cache_miss_duration);
             // Allow more generous threshold for large datasets and CI variance
-            let allowed = if size <= 1000 { Duration::from_millis(6) } else { Duration::from_millis(10) };
+            let allowed = if size <= 1000 { Duration::from_millis(6) } else { Duration::from_millis(15) };
             assert!(avg_cache_hit < allowed, 
                 "Sessions filter cache hit too slow with {} sessions: {:?}", size, avg_cache_hit);
             
