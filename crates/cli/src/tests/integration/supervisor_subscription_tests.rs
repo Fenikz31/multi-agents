@@ -14,4 +14,22 @@ fn supervisor_subscription_smoke() {
     assert!(!id.is_empty());
 }
 
+#[test]
+fn supervisor_subscription_detects_routed_event() {
+    let project = "demo";
+    let role = "backend";
+    let agent = "backend1";
+    let provider = "claude";
+    let _ = std::fs::create_dir_all(format!("./logs/{project}"));
+    let _ = crate::logging::ndjson::emit_routed_event(
+        project, role, agent, provider, Some("b-xyz"), Some("m-abc")
+    );
+
+    let mut sub = crate::supervisor::subscription::SupervisorSubscription::new(project.to_string());
+    let events = sub.tail_and_filter(role.to_string(), Some("routed".to_string()), 100).expect("subscription failed");
+    assert!(events.iter().any(|line| line.contains("\"event\":\"routed\"")));
+    assert!(events.iter().any(|line| line.contains("b-xyz")));
+    assert!(events.iter().any(|line| line.contains("m-abc")));
+}
+
 
