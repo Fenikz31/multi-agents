@@ -15,6 +15,7 @@ pub struct NdjsonEvent {
     pub dur_ms: Option<u64>,
     pub broadcast_id: Option<String>,
     pub session_id: Option<String>,
+    pub message_id: Option<String>,
 }
 
 impl NdjsonEvent {
@@ -31,6 +32,7 @@ impl NdjsonEvent {
             dur_ms: None,
             broadcast_id: None,
             session_id: None,
+            message_id: None,
         }
     }
 
@@ -50,6 +52,7 @@ impl NdjsonEvent {
             dur_ms: None,
             broadcast_id: None,
             session_id: None,
+            message_id: None,
         }
     }
 
@@ -66,6 +69,7 @@ impl NdjsonEvent {
             dur_ms: Some(dur_ms),
             broadcast_id: None,
             session_id: None,
+            message_id: None,
         }
     }
 
@@ -96,6 +100,7 @@ impl NdjsonEvent {
             dur_ms: Some(dur_ms),
             broadcast_id: None,
             session_id: None,
+            message_id: None,
         }
     }
 
@@ -124,6 +129,7 @@ impl NdjsonEvent {
             dur_ms: Some(dur_ms),
             broadcast_id: None,
             session_id: None,
+            message_id: None,
         }
     }
 
@@ -147,6 +153,24 @@ impl NdjsonEvent {
             dur_ms: None,
             broadcast_id: broadcast_id.map(|s| s.to_string()),
             session_id: None,
+            message_id: None,
+        }
+    }
+
+    pub fn new_routed(project_id: &str, agent_role: &str, agent_id: &str, provider: &str, broadcast_id: Option<String>, message_id: Option<String>) -> Self {
+        Self {
+            ts: chrono::Utc::now().to_rfc3339(),
+            level: "info".to_string(),
+            project_id: project_id.to_string(),
+            agent_role: agent_role.to_string(),
+            agent_id: agent_id.to_string(),
+            provider: provider.to_string(),
+            event: "routed".to_string(),
+            text: None,
+            dur_ms: None,
+            broadcast_id,
+            session_id: None,
+            message_id,
         }
     }
 }
