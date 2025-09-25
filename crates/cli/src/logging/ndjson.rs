@@ -89,6 +89,27 @@ pub fn emit_stdout_line_event(project_name: &str, role: &str, agent_name: &str, 
     write_ndjson_event(&log_file, &event)
 }
 
+/// Emit routed event for NDJSON logging
+pub fn emit_routed_event(
+    project_name: &str,
+    role: &str,
+    agent_name: &str,
+    provider: &str,
+    broadcast_id: Option<&str>,
+    message_id: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let log_file = format!("./logs/{}/{}.ndjson", project_name, role);
+    let event = super::events::NdjsonEvent::new_routed(
+        project_name,
+        role,
+        agent_name,
+        provider,
+        broadcast_id.map(|s| s.to_string()),
+        message_id.map(|s| s.to_string()),
+    );
+    write_ndjson_event(&log_file, &event)
+}
+
 /// Check if a string has ANSI escape sequences
 pub fn has_ansi(s: &str) -> bool {
     // Quick heuristic: ESC [ ... m  (CSI SGR)
