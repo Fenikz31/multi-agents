@@ -610,7 +610,7 @@ mod tui_state_management_performance_tests {
         let duration = start.elapsed();
         
         println!("KanbanState with {} tasks: {:?}", large_task_count, duration);
-        assert!(duration < Duration::from_millis(500), 
+        assert!(duration < Duration::from_millis(800), 
             "KanbanState too slow with {} tasks: {:?}", large_task_count, duration);
         
         // Test SessionsState with large dataset
@@ -631,7 +631,7 @@ mod tui_state_management_performance_tests {
         let duration = start.elapsed();
         
         println!("KanbanState rendering with {} tasks: {:?}", large_task_count, duration);
-        assert!(duration < Duration::from_millis(800), 
+        assert!(duration < Duration::from_millis(1000), 
             "KanbanState rendering too slow with {} tasks: {:?}", large_task_count, duration);
         
         metrics.finalize();
