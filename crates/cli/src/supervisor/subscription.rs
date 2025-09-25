@@ -39,6 +39,35 @@ impl SupervisorSubscription {
         }
         Ok(lines)
     }
+
+    /// Aggregate last N lines across roles, filter by event, sort by ts ascending
+    pub fn aggregate_tail(
+        &mut self,
+        roles: Vec<String>,
+        event_filter: Option<String>,
+        max_lines_per_role: usize,
+    ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        let mut all: Vec<String> = Vec::new();
+        for role in roles {
+            if let Ok(mut lines) = self.tail_and_filter(role, event_filter.clone(), max_lines_per_role) {
+                all.append(&mut lines);
+            }
+        }
+        // Sort by ts (RFC3339) ascending
+        all.sort_by(|a, b| {
+            let ta = extract_ts(a);
+            let tb = extract_ts(b);
+            ta.cmp(&tb)
+        });
+        Ok(all)
+    }
+}
+
+fn extract_ts(line: &str) -> String {
+    match serde_json::from_str::<serde_json::Value>(line) {
+        Ok(v) => v.get("ts").and_then(|t| t.as_str()).unwrap_or("").to_string(),
+        Err(_) => String::new(),
+    }
 }
 
 
