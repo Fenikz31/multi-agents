@@ -62,4 +62,54 @@ pub fn compute_routed_metrics(lines: Vec<String>) -> Result<RoutedMetrics, Box<d
     Ok(RoutedMetrics { total, per_role, unique_broadcasts: broadcasts.len(), p95_latency_per_broadcast, top_roles })
 }
 
+/// Compute routed metrics from NdjsonEvent objects
+pub fn compute_routed_metrics_from_events(events: Vec<crate::logging::events::NdjsonEvent>) -> Result<RoutedMetrics, Box<dyn std::error::Error>> {
+    use std::collections::{HashMap, HashSet};
+    let mut total: usize = 0;
+    let mut per_role: HashMap<String, usize> = HashMap::new();
+    let mut broadcasts: HashSet<String> = HashSet::new();
+    let mut per_broadcast_timestamps: HashMap<String, Vec<String>> = HashMap::new();
+
+    for event in events {
+        if event.event == "routed" {
+            total += 1;
+            *per_role.entry(event.agent_role.clone()).or_default() += 1;
+            
+            if let Some(broadcast_id) = &event.broadcast_id {
+                broadcasts.insert(broadcast_id.clone());
+                per_broadcast_timestamps.entry(broadcast_id.clone()).or_default().push(event.ts.clone());
+            }
+        }
+    }
+
+    // Compute p95 latency per broadcast
+    let mut p95_latency_per_broadcast: HashMap<String, u64> = HashMap::new();
+    for (broadcast_id, timestamps) in per_broadcast_timestamps {
+        if timestamps.len() > 1 {
+            let mut durations: Vec<u64> = Vec::new();
+            for i in 1..timestamps.len() {
+                if let (Ok(ts1), Ok(ts2)) = (
+                    chrono::DateTime::parse_from_rfc3339(&timestamps[i-1]),
+                    chrono::DateTime::parse_from_rfc3339(&timestamps[i])
+                ) {
+                    let duration = ts2.signed_duration_since(ts1).num_milliseconds() as u64;
+                    durations.push(duration);
+                }
+            }
+            durations.sort();
+            let p95_index = (durations.len() as f64 * 0.95) as usize;
+            let p95_latency = durations.get(p95_index.min(durations.len().saturating_sub(1))).cloned().unwrap_or(0);
+            p95_latency_per_broadcast.insert(broadcast_id, p95_latency);
+        } else {
+            p95_latency_per_broadcast.insert(broadcast_id, 0);
+        }
+    }
+
+    // Sort top roles by count
+    let mut top_roles: Vec<(String, usize)> = per_role.into_iter().collect();
+    top_roles.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+
+    Ok(RoutedMetrics { total, per_role: top_roles.iter().map(|(k, v)| (k.clone(), *v)).collect(), unique_broadcasts: broadcasts.len(), p95_latency_per_broadcast, top_roles })
+}
+
 

@@ -32,6 +32,11 @@ impl SupervisorManager {
     pub fn routed_summary(lines: Vec<String>) -> Result<RoutedMetrics, Box<dyn std::error::Error>> {
         metrics::compute_routed_metrics(lines)
     }
+
+    /// Compute a routed summary from NdjsonEvent objects (integration point for broadcast→supervisor)
+    pub fn routed_summary_from_events(events: Vec<crate::logging::events::NdjsonEvent>) -> Result<RoutedMetrics, Box<dyn std::error::Error>> {
+        metrics::compute_routed_metrics_from_events(events)
+    }
 }
 
 

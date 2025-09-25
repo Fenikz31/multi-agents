@@ -13,5 +13,10 @@ pub mod tui_integration_tests;
 pub mod tui_performance_tests;
 pub mod tui_compatibility_tests;
 pub mod tui_regression_tests;
+pub mod supervisor_subscription_tests;
+pub mod supervisor_aggregation_tests;
+pub mod broadcast_supervisor_integration_tests;
+pub mod m7_comprehensive_tests;
+pub mod m7_m4_regression_tests;
 
 // Re-export all integration tests
