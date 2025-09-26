@@ -459,7 +459,7 @@ mod tests {
 
     #[test]
     fn test_broadcast_metrics_creation() {
-        let mut metrics = BroadcastMetrics::new(
+        let metrics = BroadcastMetrics::new(
             "test-broadcast-123".to_string(),
             "test-project".to_string(),
             3

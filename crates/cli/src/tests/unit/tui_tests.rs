@@ -8,7 +8,7 @@ use crate::tui::state::navigation_state::{HelpState, ProjectSelectState, Project
 use crate::tui::components::{
     TaskCard, Task, TaskStatus, TaskPriority,
     SessionItem as ComponentSessionItem, Session, SessionStatus, Provider,
-    LogViewer, LogEntry, LogLevel, LogFilter
+    LogViewer, LogEntry, LogLevel
 };
 use crate::tui::views::kanban::{KanbanView, KanbanColumn, KanbanSort};
 

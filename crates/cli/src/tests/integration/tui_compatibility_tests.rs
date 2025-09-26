@@ -7,11 +7,6 @@
 use std::error::Error;
 use ratatui::{
     backend::TestBackend,
-    buffer::Buffer,
-    layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
-    text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
     Terminal,
 };
 
@@ -20,7 +15,7 @@ use crate::tui::{
     state::navigation_state::{HelpState, ProjectSelectState, ProjectItem},
     state::TuiState,
     components::{Toast, ToastQueue, ToastType, GlobalStatus, GlobalStateIcon, Task, TaskStatus, TaskPriority},
-    themes::{ThemeKind, ThemePalette, Typography, default_typography, compact_typography, high_density_typography},
+    themes::{ThemeKind, default_typography, compact_typography, high_density_typography},
     views::{render_kanban_view, render_sessions_view, KanbanView, KanbanColumn},
     components::{render_global_status, render_toasts},
 };

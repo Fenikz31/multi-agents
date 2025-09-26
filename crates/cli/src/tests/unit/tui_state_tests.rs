@@ -3,8 +3,8 @@
 //! Tests pour KanbanState, SessionsState, HelpState, ProjectSelectState et StateManager
 
 use crate::tui::state::{
-    TuiState, StateTransition, StateManager, StateContext,
-    view_state::{KanbanState, TaskItem, KanbanColumn, SessionsState, SessionItem},
+    TuiState, StateTransition, StateManager,
+    view_state::{KanbanState, TaskItem, SessionsState, SessionItem},
     navigation_state::{HelpState, ProjectSelectState, ProjectItem},
     selection_store
 };
