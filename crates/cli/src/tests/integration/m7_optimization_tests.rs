@@ -37,6 +37,9 @@ fn m7_optimization_supervisor_aggregation_performance() {
         }
     }
     
+    // Ensure files are written before testing
+    std::thread::sleep(std::time::Duration::from_millis(10));
+    
     // Test aggregation performance
     let start = Instant::now();
     let mut sub = crate::supervisor::subscription::SupervisorSubscription::new(project.to_string());
@@ -87,6 +90,9 @@ fn m7_optimization_metrics_computation_performance() {
             let _ = crate::logging::ndjson::write_ndjson_event(&log_file.to_string_lossy(), &event);
         }
     }
+    
+    // Ensure files are written before testing
+    std::thread::sleep(std::time::Duration::from_millis(10));
     
     // Test metrics computation performance
     let start = Instant::now();
@@ -203,6 +209,9 @@ fn m7_optimization_debug_logging_improvements() {
         let _ = crate::logging::ndjson::write_ndjson_event(&log_file.to_string_lossy(), &event);
     }
     
+    // Ensure files are written before testing
+    std::thread::sleep(std::time::Duration::from_millis(10));
+    
     // Test that operations complete successfully with debug info
     let result = sub.tail_and_filter("backend".to_string(), Some("routed".to_string()), 100);
     assert!(result.is_ok(), "Debug logging should not interfere with operations");
@@ -248,6 +257,9 @@ fn m7_optimization_memory_efficiency() {
             let _ = crate::logging::ndjson::write_ndjson_event(&log_file.to_string_lossy(), &event);
         }
     }
+    
+    // Ensure files are written before testing
+    std::thread::sleep(std::time::Duration::from_millis(10));
     
     // Test memory-efficient processing
     let start = Instant::now();

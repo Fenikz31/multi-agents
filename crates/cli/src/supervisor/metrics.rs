@@ -13,22 +13,35 @@ pub struct RoutedMetrics {
 /// - total number of routed events
 /// - count per role
 /// - unique broadcast_id count
+/// Optimized version with improved performance and reduced allocations
 pub fn compute_routed_metrics(lines: Vec<String>) -> Result<RoutedMetrics, Box<dyn std::error::Error>> {
     use std::collections::{HashMap, HashSet};
+    
+    // Pre-allocate collections with estimated capacity
+    let estimated_events = lines.len();
+    let mut per_role: HashMap<String, usize> = HashMap::with_capacity(estimated_events / 10);
+    let mut broadcasts: HashSet<String> = HashSet::with_capacity(estimated_events / 20);
+    let mut per_broadcast_timestamps: HashMap<String, Vec<String>> = HashMap::with_capacity(estimated_events / 20);
     let mut total: usize = 0;
-    let mut per_role: HashMap<String, usize> = HashMap::new();
-    let mut broadcasts: HashSet<String> = HashSet::new();
-    let mut per_broadcast_timestamps: HashMap<String, Vec<String>> = HashMap::new();
 
+    // Optimized parsing with early filtering
     for line in lines {
+        // Fast check for routed events using string search instead of JSON parsing
+        if !line.contains("\"event\":\"routed\"") {
+            continue;
+        }
+        
+        // Parse JSON only for routed events
         let v: serde_json::Value = serde_json::from_str(&line)?;
-        let event = v.get("event").and_then(|e| e.as_str()).unwrap_or("");
-        if event != "routed" { continue; }
-
+        
         total += 1;
+        
+        // Extract role with optimized string handling
         if let Some(role) = v.get("agent_role").and_then(|r| r.as_str()) {
             *per_role.entry(role.to_string()).or_insert(0) += 1;
         }
+        
+        // Extract broadcast_id and timestamp
         if let Some(bid) = v.get("broadcast_id").and_then(|b| b.as_str()) {
             if !bid.is_empty() {
                 broadcasts.insert(bid.to_string());
@@ -63,13 +76,18 @@ pub fn compute_routed_metrics(lines: Vec<String>) -> Result<RoutedMetrics, Box<d
 }
 
 /// Compute routed metrics from NdjsonEvent objects
+/// Optimized version with improved performance and reduced allocations
 pub fn compute_routed_metrics_from_events(events: Vec<crate::logging::events::NdjsonEvent>) -> Result<RoutedMetrics, Box<dyn std::error::Error>> {
     use std::collections::{HashMap, HashSet};
+    
+    // Pre-allocate collections with estimated capacity
+    let estimated_events = events.len();
+    let mut per_role: HashMap<String, usize> = HashMap::with_capacity(estimated_events / 10);
+    let mut broadcasts: HashSet<String> = HashSet::with_capacity(estimated_events / 20);
+    let mut per_broadcast_timestamps: HashMap<String, Vec<String>> = HashMap::with_capacity(estimated_events / 20);
     let mut total: usize = 0;
-    let mut per_role: HashMap<String, usize> = HashMap::new();
-    let mut broadcasts: HashSet<String> = HashSet::new();
-    let mut per_broadcast_timestamps: HashMap<String, Vec<String>> = HashMap::new();
 
+    // Optimized processing with early filtering
     for event in events {
         if event.event == "routed" {
             total += 1;
