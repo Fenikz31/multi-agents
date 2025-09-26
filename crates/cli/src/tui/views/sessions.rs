@@ -3,7 +3,7 @@
 //! Renders a simple sessions list with header/footer using ratatui.
 
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Modifier, Stylize};
+use ratatui::style::{Modifier};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 
 use super::super::themes::{ThemePalette, Typography};

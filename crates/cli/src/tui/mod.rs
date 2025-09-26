@@ -11,7 +11,7 @@ pub mod navigation;
 pub mod themes;
 
 use std::error::Error;
-use state::{StateManager, TuiState, StateTransition};
+use state::{StateManager, StateTransition};
 
 /// Main TUI application
 pub struct TuiApp {

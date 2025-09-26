@@ -95,7 +95,7 @@ impl KanbanState {
     /// Get columns
     pub fn get_columns(&self) -> Vec<KanbanColumn> {
         if let Some(cols) = &self.cached_columns { return cols.to_vec(); }
-        let mut columns = self.build_columns();
+        let columns = self.build_columns();
         // Apply simple pagination on the selected column
         let mut columns_paginated = columns.clone();
         if let Some(col) = columns_paginated.get_mut(self.selected_column) {
@@ -527,7 +527,7 @@ impl TuiState for SessionsState {
                 // Attach to selected session
                 if let Some(selected) = self.selected_session {
                     let filtered = self.get_filtered_sessions();
-                    if let Some(session) = filtered.get(selected) {
+                    if let Some(_session) = filtered.get(selected) {
                         // TODO: Implement session attachment
                         return Ok(StateTransition::Error("Session attachment not implemented yet".to_string()));
                     }

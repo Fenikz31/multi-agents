@@ -3,11 +3,9 @@
 //! Provides a log viewer component with syntax highlighting,
 //! filtering, and real-time updates.
 
-use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Modifier, Style, Stylize};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Widget};
+use ratatui::style::{Style};
+use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 
 use super::super::themes::{ThemePalette, Typography};
 use std::fs::File;
@@ -251,7 +249,7 @@ pub fn render_log_viewer(f: &mut ratatui::Frame, area: Rect, log_viewer: &LogVie
         .enumerate()
         .skip(start)
         .map(|(i, log)| {
-            let line_number = start + i + 1;
+            let _line_number = start + i + 1;
             let metadata = log.metadata.clone().unwrap_or_default();
             let text = format!(
                 "{} [{}] {} - {}",

@@ -3,11 +3,10 @@
 //! Provides a reusable task card component with status indicators,
 //! priority badges, and interactive elements.
 
-use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Modifier, Style, Stylize};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Widget};
+use ratatui::widgets::{Block, Borders, Paragraph};
 
 use super::super::themes::{ThemePalette, Typography};
 
@@ -142,7 +141,7 @@ pub fn render_task_card(f: &mut ratatui::Frame, area: Rect, task_card: &TaskCard
         .split(inner_area);
 
     // Determine card style based on state
-    let card_style = if task_card.selected {
+    let _card_style = if task_card.selected {
         typography.body.fg(theme.primary).add_modifier(Modifier::REVERSED)
     } else if task_card.focused {
         typography.body.fg(theme.primary).add_modifier(Modifier::BOLD)
