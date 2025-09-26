@@ -232,6 +232,9 @@ multi-agents broadcast --project demo --message "Status check" --mode oneshot --
 - **Message subscription**: Supervisor receives all messages
 - **Task re-routing**: Can redirect tasks between agents
 - **Coordination**: Orchestrates complex multi-agent workflows
+- **Log monitoring**: Real-time monitoring of agent activities
+- **Metrics computation**: Analysis of routed events and performance
+- **Event aggregation**: Multi-role log aggregation and filtering
 
 #### Examples
 ```bash
@@ -247,6 +250,42 @@ multi-agents send --to backend --message "Implement new endpoint"
 # Route to existing session
 multi-agents send --to conv_1234567890abcdef --message "Continue previous task"
 ```
+
+#### Supervisor Monitoring Workflow
+
+The supervisor provides comprehensive monitoring capabilities for multi-agent systems:
+
+##### Real-time Log Monitoring
+```bash
+# Monitor routed events in real-time
+# Supervisor automatically tracks all send --to @role and @all operations
+multi-agents send --to @backend --message "Database migration started"
+# → Generates routed event in ./logs/{project}/backend.ndjson
+
+multi-agents send --to @all --message "System maintenance in 5 minutes"
+# → Generates routed events in all role log files
+```
+
+##### Metrics Analysis
+The supervisor computes comprehensive metrics for routed events:
+- **Total routed events**: Count of all routing operations
+- **Per-role breakdown**: Events distributed by agent role
+- **Unique broadcasts**: Number of distinct broadcast operations
+- **P95 latency**: 95th percentile latency per broadcast
+- **Top roles**: Roles sorted by activity level
+
+##### Log Aggregation
+```bash
+# Supervisor can aggregate logs from multiple roles
+# Example: Monitor all backend and frontend activities
+# Logs are automatically sorted by timestamp and filtered by event type
+```
+
+##### Integration with CLI Commands
+The supervisor integrates seamlessly with existing CLI commands:
+- All `send --to @role` and `send --to @all` commands generate routed events
+- Events are stored in NDJSON format for easy parsing and analysis
+- Real-time monitoring enables immediate feedback on system performance
 
 ### Git Context Integration
 
