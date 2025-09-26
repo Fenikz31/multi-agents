@@ -4,7 +4,7 @@
 
 use std::sync::{Arc, Mutex};
 use rusqlite::{Connection, params};
-use crate::repository::{Repository, RepositoryManager};
+use crate::repository::Repository;
 use crate::repository::project_repository::ProjectRepository;
 use crate::repository::agent_repository::AgentRepository;
 use crate::repository::session_repository::SessionRepository;

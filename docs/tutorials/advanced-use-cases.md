@@ -2,6 +2,33 @@
 
 Ce guide présente des cas d'usage avancés pour le système de routing et supervision de Multi-Agents CLI, incluant l'orchestration multi-agents, le monitoring distribué, et l'optimisation des performances.
 
+## Exemples Avancés
+
+Les exemples suivants démontrent des scénarios d'usage avancés du système M7.
+
+## Configuration Avancée
+
+### Configuration des Providers
+
+Configurez des providers multiples avec des paramètres spécifiques pour chaque environnement :
+
+```yaml
+# Configuration avancée des providers
+providers:
+  claude:
+    cmd: "claude"
+    oneshot_args: ["-p", "--print", "--output-format", "text", "{prompt}"]
+    repl_args: ["repl"]
+    timeout_ms: 30000
+    retry_attempts: 3
+  gemini:
+    cmd: "gemini"
+    oneshot_args: ["{prompt}"]
+    repl_args: ["-i", "{system_prompt}"]
+    timeout_ms: 20000
+    retry_attempts: 2
+```
+
 ## Orchestration Multi-Agents
 
 ### 1. Workflow de Développement Complexe

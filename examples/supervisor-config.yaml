@@ -1,5 +1,12 @@
 schema_version: 1
 project: supervisor-demo
+
+# Routing configuration for M7
+routing:
+  enabled: true
+  default_timeout_ms: 5000
+  broadcast_mode: "oneshot"
+
 agents:
   - name: supervisor-agent
     role: supervisor

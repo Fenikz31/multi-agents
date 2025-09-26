@@ -27,7 +27,10 @@ impl SupervisorSubscription {
         max_lines: usize,
     ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
         let path = format!("./logs/{}/{}.ndjson", self.project, role);
-        let content = std::fs::read_to_string(&path)?;
+        let content = match std::fs::read_to_string(&path) {
+            Ok(content) => content,
+            Err(_) => return Ok(vec![]), // Return empty results for non-existent files
+        };
         let mut lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
         if lines.len() > max_lines {
             let start = lines.len() - max_lines;

@@ -1,6 +1,5 @@
 //! Integration tests for supervisor subscription (M7-02)
 
-use tempfile::TempDir;
 
 #[test]
 fn supervisor_subscription_smoke() {

@@ -2,7 +2,7 @@
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    
     use tempfile::TempDir;
 
     #[test]
@@ -32,15 +32,21 @@ mod tests {
 
     #[test]
     fn compute_routed_metrics_counts_total_per_role_and_unique_broadcasts() {
-        let project = "demo";
+        let tmp_dir = TempDir::new().unwrap();
+        let project = "test-metrics-demo";
         let role_a = "backend";
         let role_b = "frontend";
         let agent_a = "backend1";
         let agent_b = "frontend1";
         let provider = "claude";
 
-        let _tmp = TempDir::new().unwrap();
-        let _ = std::fs::create_dir_all(format!("./logs/{project}"));
+        // Use isolated temp directory for logs
+        let logs_dir = tmp_dir.path().join("logs").join(project);
+        std::fs::create_dir_all(&logs_dir).unwrap();
+        
+        // Change to temp directory for this test
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(tmp_dir.path()).unwrap();
 
         // Two routed for same broadcast, different roles
         let _ = crate::logging::ndjson::emit_routed_event(project, role_a, agent_a, provider, Some("b-1"), Some("m-1a"));
@@ -52,6 +58,9 @@ mod tests {
         let lines = sub.aggregate_tail(vec![role_a.to_string(), role_b.to_string()], Some("routed".to_string()), 100).unwrap();
         let metrics = crate::supervisor::metrics::compute_routed_metrics(lines).expect("metrics");
 
+        // Restore original directory
+        std::env::set_current_dir(original_dir).unwrap();
+
         assert_eq!(metrics.total, 3, "total routed events should be 3");
         assert_eq!(metrics.per_role.get(role_a).cloned().unwrap_or(0), 2);
         assert_eq!(metrics.per_role.get(role_b).cloned().unwrap_or(0), 1);
@@ -60,15 +69,21 @@ mod tests {
 
     #[test]
     fn compute_routed_metrics_provides_p95_latency_per_broadcast_and_top_roles() {
-        let project = "demo";
+        let tmp_dir = TempDir::new().unwrap();
+        let project = "test-latency-demo";
         let role_a = "backend";
         let role_b = "frontend";
         let agent_a = "backend1";
         let agent_b = "frontend1";
         let provider = "claude";
 
-        let _tmp = TempDir::new().unwrap();
-        let _ = std::fs::create_dir_all(format!("./logs/{project}"));
+        // Use isolated temp directory for logs
+        let logs_dir = tmp_dir.path().join("logs").join(project);
+        std::fs::create_dir_all(&logs_dir).unwrap();
+        
+        // Change to temp directory for this test
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(tmp_dir.path()).unwrap();
 
         // Same broadcast b-1 with two routed events separated by a small delay
         let _ = crate::logging::ndjson::emit_routed_event(project, role_a, agent_a, provider, Some("b-1"), Some("m-1a"));
@@ -81,6 +96,9 @@ mod tests {
         let mut sub = crate::supervisor::subscription::SupervisorSubscription::new(project.to_string());
         let lines = sub.aggregate_tail(vec![role_a.to_string(), role_b.to_string()], Some("routed".to_string()), 100).unwrap();
         let metrics = crate::supervisor::metrics::compute_routed_metrics(lines).expect("metrics");
+
+        // Restore original directory
+        std::env::set_current_dir(original_dir).unwrap();
 
         // p95 latency per broadcast should exist and be non-zero for b-1
         let p95 = metrics.p95_latency_per_broadcast.get("b-1").cloned().unwrap_or(0);

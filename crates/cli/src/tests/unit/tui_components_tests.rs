@@ -3,7 +3,7 @@
 //! Tests pour Toast, ToastQueue, GlobalStatus, ThemePalette et Typography
 
 use crate::tui::components::{Toast, ToastQueue, ToastType, GlobalStatus, GlobalStateIcon};
-use crate::tui::themes::{ThemePalette, ThemeKind, Typography, default_typography, compact_typography, high_density_typography};
+use crate::tui::themes::{ThemeKind, default_typography, compact_typography, high_density_typography};
 use ratatui::style::Color;
 
 #[cfg(test)]
