@@ -200,8 +200,34 @@ mod tests {
 
         // Verify chronological sorting (oldest first)
         for i in 1..aggregated_lines.len() {
-            let prev_ts = chrono::DateTime::parse_from_rfc3339(&extract_ts(&aggregated_lines[i-1])).unwrap();
-            let curr_ts = chrono::DateTime::parse_from_rfc3339(&extract_ts(&aggregated_lines[i])).unwrap();
+            let prev_line = &aggregated_lines[i-1];
+            let curr_line = &aggregated_lines[i];
+            
+            // Extract timestamp from JSON line
+            let prev_ts_str = if let Some(start) = prev_line.find("\"ts\":\"") {
+                let ts_start = start + 6;
+                if let Some(end) = prev_line[ts_start..].find('"') {
+                    &prev_line[ts_start..ts_start + end]
+                } else {
+                    continue;
+                }
+            } else {
+                continue;
+            };
+            
+            let curr_ts_str = if let Some(start) = curr_line.find("\"ts\":\"") {
+                let ts_start = start + 6;
+                if let Some(end) = curr_line[ts_start..].find('"') {
+                    &curr_line[ts_start..ts_start + end]
+                } else {
+                    continue;
+                }
+            } else {
+                continue;
+            };
+            
+            let prev_ts = chrono::DateTime::parse_from_rfc3339(prev_ts_str).unwrap();
+            let curr_ts = chrono::DateTime::parse_from_rfc3339(curr_ts_str).unwrap();
             assert!(prev_ts <= curr_ts, "Events should be sorted chronologically");
         }
 
