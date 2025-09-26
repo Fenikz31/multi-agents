@@ -19,5 +19,6 @@ pub mod broadcast_supervisor_integration_tests;
 pub mod m7_comprehensive_tests;
 pub mod m7_m4_regression_tests;
 pub mod m7_acceptance_tests;
+pub mod m7_functional_validation_tests;
 
 // Re-export all integration tests
