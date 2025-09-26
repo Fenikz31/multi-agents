@@ -50,12 +50,12 @@ print_success() {
 check_prerequisites() {
     print_header "Vérification des prérequis"
     
-    # Vérifier que multi-agents CLI est installé
-    if ! command -v multi-agents &> /dev/null; then
-        print_error "multi-agents CLI n'est pas installé"
+    # Vérifier que $CLI_CMD CLI est installé
+    if ! command -v $CLI_CMD &> /dev/null; then
+        print_error "$CLI_CMD CLI n'est pas installé"
         exit 1
     fi
-    print_success "multi-agents CLI trouvé"
+    print_success "$CLI_CMD CLI trouvé"
     
     # Vérifier que les fichiers de configuration existent
     if [ ! -f "$CONFIG_FILE" ]; then
@@ -73,7 +73,7 @@ check_prerequisites() {
     # Vérifier que la base de données est initialisée
     if [ ! -f "./data/multi-agents.sqlite3" ]; then
         print_info "Initialisation de la base de données..."
-        multi-agents db init
+        $CLI_CMD db init
         print_success "Base de données initialisée"
     else
         print_success "Base de données trouvée"
@@ -86,13 +86,13 @@ setup_project() {
     
     # Ajouter le projet
     print_step "Ajout du projet $PROJECT_NAME"
-    multi-agents project add --name "$PROJECT_NAME" || print_warning "Projet peut déjà exister"
+    $CLI_CMD project add --name "$PROJECT_NAME" || print_warning "Projet peut déjà exister"
     
     # Ajouter les agents
     print_step "Ajout des agents"
     
     # Supervisor
-    multi-agents agent add \
+    $CLI_CMD agent add \
         --project "$PROJECT_NAME" \
         --name "supervisor" \
         --role "supervisor" \
@@ -101,7 +101,7 @@ setup_project() {
         --system-prompt "You are a supervisor agent responsible for coordinating other agents and monitoring system performance." || print_warning "Agent supervisor peut déjà exister"
     
     # Backend Developer
-    multi-agents agent add \
+    $CLI_CMD agent add \
         --project "$PROJECT_NAME" \
         --name "backend-dev" \
         --role "backend" \
@@ -110,7 +110,7 @@ setup_project() {
         --system-prompt "You are a backend developer specializing in API development and system architecture." || print_warning "Agent backend-dev peut déjà exister"
     
     # Frontend Developer
-    multi-agents agent add \
+    $CLI_CMD agent add \
         --project "$PROJECT_NAME" \
         --name "frontend-dev" \
         --role "frontend" \
@@ -119,7 +119,7 @@ setup_project() {
         --system-prompt "You are a frontend developer focused on user experience and modern web technologies." || print_warning "Agent frontend-dev peut déjà exister"
     
     # DevOps Engineer
-    multi-agents agent add \
+    $CLI_CMD agent add \
         --project "$PROJECT_NAME" \
         --name "devops-engineer" \
         --role "devops" \
@@ -136,7 +136,7 @@ demo_role_routing() {
     
     # Routing vers backend
     print_step "Routing vers les développeurs backend"
-    multi-agents send \
+    $CLI_CMD send \
         --project-file "$CONFIG_FILE" \
         --providers-file "$PROVIDERS_FILE" \
         --to "@backend" \
@@ -147,7 +147,7 @@ demo_role_routing() {
     
     # Routing vers frontend
     print_step "Routing vers les développeurs frontend"
-    multi-agents send \
+    $CLI_CMD send \
         --project-file "$CONFIG_FILE" \
         --providers-file "$PROVIDERS_FILE" \
         --to "@frontend" \
@@ -158,7 +158,7 @@ demo_role_routing() {
     
     # Routing vers devops
     print_step "Routing vers les ingénieurs DevOps"
-    multi-agents send \
+    $CLI_CMD send \
         --project-file "$CONFIG_FILE" \
         --providers-file "$PROVIDERS_FILE" \
         --to "@devops" \
@@ -173,7 +173,7 @@ demo_broadcast() {
     print_header "Démonstration du Broadcast Global"
     
     print_step "Broadcast à toute l'équipe"
-    multi-agents send \
+    $CLI_CMD send \
         --project-file "$CONFIG_FILE" \
         --providers-file "$PROVIDERS_FILE" \
         --to "@all" \
@@ -183,7 +183,7 @@ demo_broadcast() {
     sleep 3
     
     print_step "Broadcast d'information générale"
-    multi-agents send \
+    $CLI_CMD send \
         --project-file "$CONFIG_FILE" \
         --providers-file "$PROVIDERS_FILE" \
         --to "@all" \
@@ -199,7 +199,7 @@ demo_specific_routing() {
     
     # Message au supervisor
     print_step "Message au supervisor"
-    multi-agents send \
+    $CLI_CMD send \
         --project-file "$CONFIG_FILE" \
         --providers-file "$PROVIDERS_FILE" \
         --to "supervisor" \
@@ -210,7 +210,7 @@ demo_specific_routing() {
     
     # Message à un agent spécifique
     print_step "Message à un agent spécifique"
-    multi-agents send \
+    $CLI_CMD send \
         --project-file "$CONFIG_FILE" \
         --providers-file "$PROVIDERS_FILE" \
         --to "backend-dev" \
@@ -253,7 +253,7 @@ demo_advanced_use_cases() {
     print_header "Démonstration des Cas d'Usage Avancés"
     
     print_step "Orchestration de tâches complexes"
-    multi-agents send \
+    $CLI_CMD send \
         --project-file "$CONFIG_FILE" \
         --providers-file "$PROVIDERS_FILE" \
         --to "supervisor" \
@@ -263,7 +263,7 @@ demo_advanced_use_cases() {
     sleep 2
     
     print_step "Gestion d'incident"
-    multi-agents send \
+    $CLI_CMD send \
         --project-file "$CONFIG_FILE" \
         --providers-file "$PROVIDERS_FILE" \
         --to "supervisor" \
@@ -273,7 +273,7 @@ demo_advanced_use_cases() {
     sleep 2
     
     print_step "Code review et qualité"
-    multi-agents send \
+    $CLI_CMD send \
         --project-file "$CONFIG_FILE" \
         --providers-file "$PROVIDERS_FILE" \
         --to "@developers" \
@@ -297,7 +297,7 @@ cleanup() {
     
     print_step "Nettoyage de la base de données (optionnel)"
     print_warning "Pour supprimer le projet de la base de données, exécutez:"
-    print_info "multi-agents project remove --name $PROJECT_NAME"
+    print_info "$CLI_CMD project remove --name $PROJECT_NAME"
     
     print_success "Nettoyage terminé"
 }

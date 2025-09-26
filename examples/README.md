@@ -219,7 +219,7 @@ multi-agents send --to @all --message "Test de routing"
 ### Exemples de Code
 
 - **Configuration YAML** : `examples/supervisor-config.yaml`
-- **Scripts de démonstration** : `scripts/demo-m7-routing.sh`
+- **Script de démonstration consolidé** : `scripts/demo-m7-routing.sh`
 - **Tutoriels détaillés** : `docs/tutorials/`
 
 ### Support

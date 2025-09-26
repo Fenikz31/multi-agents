@@ -1,104 +1,27 @@
 schema_version: 1
-project: m7-supervisor-demo
+project: supervisor-demo
 agents:
-  - name: supervisor
+  - name: supervisor-agent
     role: supervisor
     provider: claude
     model: sonnet-4
-    allowed_tools: ["Search", "Edit", "Bash(git:status)"]
-    system_prompt: >
-      You are a supervisor agent responsible for coordinating other agents,
-      monitoring system performance, and routing tasks efficiently.
-      Focus on:
-      - Task coordination and delegation
-      - Performance monitoring and metrics analysis
-      - Error handling and recovery
-      - System optimization recommendations
-      
-      Provide concise summaries and actionable insights.
-
+    system_prompt: "You are a supervisor agent. Monitor and report on agent activities."
+    allowed_tools: []
   - name: backend-dev
     role: backend
     provider: gemini
     model: gemini-1.5-flash
-    allowed_tools: ["Edit", "Bash(git:status)", "Search"]
-    system_prompt: >
-      You are a backend developer specializing in API development,
-      database design, and system architecture.
-      Focus on:
-      - RESTful API design and implementation
-      - Database schema optimization
-      - Performance and security considerations
-      - Code quality and testing
-      
-      Respond with practical, implementable solutions.
-
+    system_prompt: "You are a backend developer. Implement API endpoints."
+    allowed_tools: ["Edit", "Bash(git:status)"]
   - name: frontend-dev
     role: frontend
     provider: cursor-agent
     model: gpt-5
-    allowed_tools: ["Edit", "Search", "Bash(npm:install)"]
-    system_prompt: >
-      You are a frontend developer focused on user experience,
-      accessibility, and modern web technologies.
-      Focus on:
-      - React/TypeScript development
-      - Responsive design and accessibility
-      - Performance optimization
-      - User interface best practices
-      
-      Prioritize user experience and code maintainability.
-
+    system_prompt: "You are a frontend developer. Build user interfaces."
+    allowed_tools: ["Edit", "Search"]
   - name: devops-engineer
     role: devops
     provider: claude
     model: sonnet-4
-    allowed_tools: ["Bash(docker:build)", "Edit", "Search"]
-    system_prompt: >
-      You are a DevOps engineer responsible for infrastructure,
-      deployment, and system reliability.
-      Focus on:
-      - Container orchestration and deployment
-      - CI/CD pipeline optimization
-      - Monitoring and alerting systems
-      - Infrastructure as Code
-      
-      Ensure reproducible, scalable, and secure deployments.
-
-# Configuration spécifique au supervisor pour M7
-supervisor:
-  monitoring:
-    enabled: true
-    log_level: "info"
-    metrics_collection: true
-    
-  routing:
-    default_timeout: 30000  # 30 seconds
-    retry_attempts: 3
-    broadcast_mode: "oneshot"  # or "repl"
-    
-  metrics:
-    collection_interval: 5000  # 5 seconds
-    retention_period: "24h"
-    alert_thresholds:
-      error_rate: 0.05  # 5%
-      response_time_p95: 2000  # 2 seconds
-      
-  aggregation:
-    enabled: true
-    max_log_lines: 1000
-    sort_by_timestamp: true
-    filter_events: ["routed", "error", "start", "end"]
-
-# Groupes d'agents pour faciliter le routing
-groups:
-  - name: all
-    members: ["supervisor", "backend-dev", "frontend-dev", "devops-engineer"]
-  - name: developers
-    members: ["backend-dev", "frontend-dev"]
-  - name: infrastructure
-    members: ["supervisor", "devops-engineer"]
-  - name: backend-team
-    members: ["supervisor", "backend-dev"]
-  - name: frontend-team
-    members: ["supervisor", "frontend-dev"]
+    system_prompt: "You are a devops engineer. Manage infrastructure and deployments."
+    allowed_tools: ["Bash(docker:build)", "Edit"]
