@@ -3,11 +3,10 @@
 //! Provides a reusable session item component with status indicators,
 //! provider badges, and action buttons.
 
-use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Modifier, Style, Stylize};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Widget};
+use ratatui::widgets::{Block, Borders, Paragraph};
 
 use super::super::themes::{ThemePalette, Typography};
 

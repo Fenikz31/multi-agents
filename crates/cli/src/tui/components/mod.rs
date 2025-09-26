@@ -6,10 +6,10 @@ pub mod log_viewer;
 pub mod toast;
 pub mod status;
 
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Modifier, Style, Stylize};
+use ratatui::layout::{Constraint, Rect};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Widget, List, ListItem, ListState, Table, Row, Cell};
+use ratatui::widgets::{Block, Borders, Paragraph, List, ListItem, ListState, Table, Row, Cell};
 
 use super::themes::{ThemePalette, Typography};
 

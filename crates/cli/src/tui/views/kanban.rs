@@ -3,10 +3,10 @@
 //! Provides a Kanban board view with columns for ToDo, Doing, and Done tasks.
 
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Modifier, Style, Stylize};
+use ratatui::style::{Modifier};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 
-use super::super::components::{TaskCard, Task, TaskStatus, TaskPriority, render_task_card, ToastQueue, render_toasts, GlobalStatus, GlobalStateIcon, render_global_status};
+use super::super::components::{TaskCard, Task, TaskStatus, TaskPriority, ToastQueue, render_toasts, GlobalStatus, GlobalStateIcon, render_global_status};
 use super::super::themes::{ThemePalette, Typography};
 
 /// Kanban column data structure

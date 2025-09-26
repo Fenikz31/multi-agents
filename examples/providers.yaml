@@ -5,10 +5,11 @@ providers:
     oneshot_args: ["-p","--print","--output-format","text","{prompt}","--session-id","{session_id}","--allowed-tools","{allowed_tools}","--permission-mode","plan"]
     repl_args: ["repl"]
     allowlist_flag: "--allowed-tools"
-  cursor:
+  cursor-agent:
     cmd: "cursor-agent"
-    oneshot_args: ["-p","--output-format","text","--resume","{chat_id}","{prompt}"]
+    oneshot_args: ["-p","--output-format","stream-json","--resume","{chat_id}","{prompt}"]
     repl_args: ["agent","--resume","{chat_id}"]
+    create_chat_args: ["create-chat"]
     forbid_flags: ["--force"]
   gemini:
     cmd: "gemini"

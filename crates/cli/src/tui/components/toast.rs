@@ -4,7 +4,7 @@
 //! notifications in the bottom-right corner of a given area.
 
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
-use ratatui::style::{Modifier, Stylize};
+use ratatui::style::{Modifier};
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders, Paragraph};
 

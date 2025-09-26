@@ -7,12 +7,12 @@ providers:
     allowlist_flag: "--allowed-tools"
   cursor-agent:
     cmd: "cursor-agent"
-    oneshot_args: ["-p","--output-format","text","--resume","{chat_id}","{prompt}"]
+    oneshot_args: ["-p","--output-format","stream-json","--resume","{chat_id}","{prompt}"]
     repl_args: ["agent","--resume","{chat_id}"]
     create_chat_args: ["create-chat"]
     forbid_flags: ["--force"]
   gemini:
     cmd: "gemini"
     oneshot_args: ["{prompt}"]
-    repl_args: ["-i","{system_prompt}","--allowed-tools","{allowed_tools}"]
+    repl_args: ["-i","{system_prompt}"]
     allowlist_flag: "--allowed-tools"
