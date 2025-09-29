@@ -692,30 +692,76 @@ multi-agents tui --project demo
 # Tips: press gT to cycle theme, gM to change density, h for help
 ```
 
-#### `multi-agents context git --status|--diff|--log`
-Collects Git context for injection into prompts.
+#### `multi-agents context git --kind <status|diff|log> [options]`
+Collects Git repository context for inspection or injection into prompts.
 
-**Options:**
-- `--status`: Git status information
-- `--diff`: Git diff information  
-- `--log`: Git log (last 5 commits)
+**Required Options:**
+- `--kind <status|diff|log>`: Choose Git operation type (mutually exclusive)
+
+**General Options:**
+- `--format text|json`: Output format (default: text)
+- `--max-bytes <N>`: Hard cap on output size in bytes (truncates with note)
+- `--max-lines <N>`: Hard cap on output lines (truncates with note)
+- `--pathspec "<globs...>"`: Filter files (e.g., `"src/** *.md"`)
+- `--no-color`: Force output without ANSI color sequences
+- `--strict`: Non-repo treated as error (exit 1). Default: exit 0 with note
+
+**Specific Options:**
+- `--staged`: With `--kind diff`: show staged changes (git diff --cached)
+- `--since <rev|date>`: With `--kind log`: only include commits since this rev/date
+- `--until <rev|date>`: With `--kind log`: only include commits until this rev/date
+- `--limit <N>`: With `--kind log`: limit number of commits (default: 5)
 
 **Behavior:**
 - Collects Git information from current repository
-- Respects size limits and redacts secrets when possible
+- Respects size limits and redacts secrets when possible (emails, tokens)
+- Binary files in diff are replaced with `[[binary content omitted]]`
+- Submodules and worktrees are ignored by default
+- Timeout: 20s (from global defaults)
 - Used with `send --include-git` flag
+
+**Exit Codes:**
+- `0`: OK (success or no repo with default behavior)
+- `1`: Generic error (e.g., `--strict` mode outside repo)
+- `3`: Provider unavailable (git binary not found)
+- `5`: Timeout (Git execution exceeded budget)
 
 **Examples:**
 ```bash
-# Get Git status
-multi-agents context git --status
+# Get Git status (text format)
+multi-agents context git --kind status
 
-# Get Git diff
-multi-agents context git --diff
+# Get Git diff in JSON with 50KB limit
+multi-agents context git --kind diff --format json --max-bytes 51200
 
-# Get Git log
-multi-agents context git --log
+# Get last 10 commits since a date
+multi-agents context git --kind log --limit 10 --since "2025-09-01"
+
+# Get staged changes only
+multi-agents context git --kind diff --staged
+
+# Outside repo (default: exit 0 with message)
+multi-agents context git --kind status
+
+# Outside repo (strict: exit 1 for scripting)
+multi-agents context git --kind status --strict
 ```
+
+**JSON Output Format:**
+```json
+{
+  "kind": "status|diff|log",
+  "truncated": true|false,
+  "bytes": 1234,
+  "lines": 56,
+  "data": "content as escaped string"
+}
+```
+
+**Security Notes:**
+- Emails are redacted as `[redacted:email]`
+- Bearer tokens are redacted as `[redacted:token]`
+- URL parameters `token=` are redacted as `[redacted]`
 
 ## Notes
 
