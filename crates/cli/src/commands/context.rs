@@ -1,7 +1,49 @@
 //! Context commands implementation
 use crate::cli::commands::{Format, GitKind};
+use crate::utils::constants::DEFAULT_TIMEOUT_GLOBAL_MS;
 use std::process::Command;
 use std::time::{Duration, Instant};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cli::commands::{Format, GitKind};
+
+    #[test]
+    fn test_redaction_function() {
+        // Test fonction de redaction
+        let input = "Email: user@example.com and token=abc123 and Authorization: Bearer xyz789";
+        let redacted = redact_sensitive(input);
+        
+        assert!(redacted.contains("[redacted:email]"));
+        assert!(redacted.contains("[redacted:token]"));
+        assert!(redacted.contains("[redacted]"));
+        assert!(!redacted.contains("user@example.com"));
+        assert!(!redacted.contains("abc123"));
+        assert!(!redacted.contains("xyz789"));
+    }
+
+    #[test]
+    fn test_redaction_multiple_emails() {
+        // Test redaction multiple emails
+        let input = "Contact: user1@example.com and user2@test.org";
+        let redacted = redact_sensitive(input);
+        
+        assert!(redacted.contains("[redacted:email]"));
+        assert!(!redacted.contains("user1@example.com"));
+        assert!(!redacted.contains("user2@test.org"));
+    }
+
+    #[test]
+    fn test_redaction_bearer_token() {
+        // Test redaction Bearer token
+        let input = "Authorization: Bearer sk-1234567890abcdef";
+        let redacted = redact_sensitive(input);
+        
+        assert!(redacted.contains("Authorization: Bearer [redacted:token]"));
+        assert!(!redacted.contains("sk-1234567890abcdef"));
+    }
+}
 
 /// Run the `context git` subcommand
 pub fn run_context_git(
@@ -17,8 +59,8 @@ pub fn run_context_git(
     until: Option<&str>,
     limit: Option<usize>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Timeout budget (fallback to 5s if not configurable here)
-    let timeout = Duration::from_millis(5_000);
+    // Timeout budget: use global default from constants (20s)
+    let timeout = Duration::from_millis(DEFAULT_TIMEOUT_GLOBAL_MS);
     let started = Instant::now();
 
     // Verify git availability
@@ -81,6 +123,23 @@ pub fn run_context_git(
 
     let mut content = String::from_utf8_lossy(if output.status.success() { &output.stdout } else { &output.stderr }).to_string();
 
+    // Normalize/cleanup for diff: replace binary lines with placeholder
+    if matches!(kind, GitKind::Diff) {
+        let mut rebuilt = String::with_capacity(content.len());
+        for line in content.lines() {
+            if line.starts_with("Binary files ") || line.contains("GIT binary patch") {
+                rebuilt.push_str("[[binary content omitted]]\n");
+            } else {
+                rebuilt.push_str(line);
+                rebuilt.push('\n');
+            }
+        }
+        content = rebuilt;
+    }
+
+    // Redaction: emails and simple token patterns
+    content = redact_sensitive(&content);
+
     // Truncation by lines
     let mut truncated = false;
     if let Some(maxl) = max_lines { 
@@ -118,6 +177,19 @@ pub fn run_context_git(
     }
 
     Ok(())
+}
+
+pub fn redact_sensitive(input: &str) -> String {
+    // Redact emails
+    let email_re = regex::Regex::new(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b").unwrap();
+    let mut out = email_re.replace_all(input, "[redacted:email]").to_string();
+    // Redact Authorization: Bearer <token>
+    let bearer_re = regex::Regex::new(r"(?i)(Authorization:\s*Bearer)\s+[A-Za-z0-9._\-]+").unwrap();
+    out = bearer_re.replace_all(&out, "$1 [redacted:token]").to_string();
+    // Redact token=... in URLs/query strings
+    let token_param_re = regex::Regex::new(r"(?i)(token=)[^&\s]+").unwrap();
+    out = token_param_re.replace_all(&out, "$1[redacted]").to_string();
+    out
 }
 
 
