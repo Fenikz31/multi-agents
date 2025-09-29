@@ -117,12 +117,16 @@ mod tests {
 
     #[test]
     fn test_emit_routed_event_writes_line() {
-        // Expect helper emit_routed_event(project, role, agent, provider, broadcast_id, message_id)
+        // Use isolated temp directory for this test
         let tmp = tempfile::tempdir().unwrap();
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(tmp.path()).unwrap();
+        
+        // Create logs directory structure
         let log_dir = tmp.path().join("logs/demo");
         std::fs::create_dir_all(&log_dir).unwrap();
-        // Temporarily override logs dir via env or by calling the function that writes to ./logs/{project}
-        // We simulate by running and then checking the file exists
+        
+        // Emit routed event
         let res = crate::logging::ndjson::emit_routed_event(
             "demo",
             "backend",
@@ -133,10 +137,14 @@ mod tests {
         );
         assert!(res.is_ok());
 
+        // Check the file was created and contains expected content
         let path = format!("./logs/{}/{}.ndjson", "demo", "backend");
         let content = std::fs::read_to_string(path).unwrap();
         assert!(content.contains("\"event\":\"routed\""));
         assert!(content.contains("b-123"));
         assert!(content.contains("m-456"));
+        
+        // Restore original directory
+        std::env::set_current_dir(original_dir).unwrap();
     }
 }
