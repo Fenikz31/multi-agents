@@ -94,6 +94,11 @@ pub enum Commands {
         /// Refresh rate in ms (default: 200)
         #[arg(long, value_name = "MILLIS")] refresh_rate: Option<u64>,
     },
+    /// Collect contextual information
+    Context {
+        #[command(subcommand)]
+        cmd: ContextCmd,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -278,4 +283,40 @@ pub enum BroadcastCmd {
 pub enum Format { 
     Text, 
     Json 
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ContextCmd {
+    /// Git repository context (status, diff, log)
+    Git {
+        /// Choose one: status | diff | log
+        #[arg(long, value_enum)] kind: GitKind,
+        /// Output format (text|json)
+        #[arg(long, value_enum, default_value_t = Format::Text)] format: Format,
+        /// Hard cap on output size in bytes (truncates with note)
+        #[arg(long, value_name = "BYTES")] max_bytes: Option<usize>,
+        /// Hard cap on output lines (truncates with note)
+        #[arg(long, value_name = "LINES")] max_lines: Option<usize>,
+        /// Space-separated pathspec filters (append after --)
+        #[arg(long, value_name = "GLOBS")] pathspec: Option<String>,
+        /// Force no ANSI color sequences
+        #[arg(long, default_value_t = false)] no_color: bool,
+        /// Non-repo treated as error (exit 1). Default: exit 0 with note
+        #[arg(long, default_value_t = false)] strict: bool,
+        /// With --diff: show staged changes (git diff --cached)
+        #[arg(long, default_value_t = false)] staged: bool,
+        /// With --log: only include commits since this rev/date
+        #[arg(long, value_name = "REV|DATE")] since: Option<String>,
+        /// With --log: only include commits until this rev/date
+        #[arg(long, value_name = "REV|DATE")] until: Option<String>,
+        /// With --log: limit number of commits (default 5)
+        #[arg(long, value_name = "N")] limit: Option<usize>,
+    },
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+pub enum GitKind {
+    Status,
+    Diff,
+    Log,
 }

@@ -64,6 +64,10 @@ impl Cli {
                     .unwrap_or_else(|| "default".to_string()));
                 run_tui(&project_name, refresh_rate)
             },
+            Commands::Context { cmd } => match cmd {
+                ContextCmd::Git { kind, format, max_bytes, max_lines, pathspec, no_color, strict, staged, since, until, limit } =>
+                    run_context_git(kind, format, max_bytes, max_lines, pathspec.as_deref(), no_color, strict, staged, since.as_deref(), until.as_deref(), limit),
+            },
         }
     }
 }

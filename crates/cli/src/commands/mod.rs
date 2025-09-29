@@ -10,6 +10,7 @@ pub mod init;
 pub mod broadcast;
 pub mod monitor;
 pub mod tui;
+pub mod context;
 
 // Re-export all command functions
 pub use config::*;
@@ -22,3 +23,4 @@ pub use init::*;
 pub use broadcast::*;
 pub use monitor::*;
 pub use tui::*;
+pub use context::*;
