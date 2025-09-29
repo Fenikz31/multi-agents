@@ -7,7 +7,6 @@ use std::time::{Duration, Instant};
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::commands::{Format, GitKind};
 
     #[test]
     fn test_redaction_function() {
